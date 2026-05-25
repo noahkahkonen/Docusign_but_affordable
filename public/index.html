@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>InkPath — Affordable e-signatures</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Ink<span>Path</span></div>
+    <span class="muted">Affordable e-signatures</span>
+  </header>
+
+  <main>
+    <div class="card">
+      <h1>Send a document for signature</h1>
+      <p class="muted">Upload a PDF (or image), enter the signer's details, and we'll generate a signing link.</p>
+
+      <div id="form-error" class="error-banner" style="display:none;"></div>
+      <div id="form-success" class="success-banner" style="display:none;">
+        Signing link created. Share this with your signer:
+        <div class="signing-url" id="signing-url"></div>
+        <div style="margin-top:10px;">
+          <button class="secondary" id="copy-link">Copy link</button>
+          <a class="btn" id="open-link" target="_blank" rel="noopener">Open</a>
+        </div>
+      </div>
+
+      <form id="send-form">
+        <div class="field">
+          <label for="title">Document title (optional)</label>
+          <input type="text" id="title" name="title" placeholder="e.g. NDA for Acme Co." />
+        </div>
+        <div class="field">
+          <label for="file">PDF or image</label>
+          <input type="file" id="file" name="file" accept="application/pdf,image/png,image/jpeg" required />
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="signer_name">Signer name</label>
+            <input type="text" id="signer_name" name="signer_name" required />
+          </div>
+          <div class="field">
+            <label for="signer_email">Signer email</label>
+            <input type="email" id="signer_email" name="signer_email" required />
+          </div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="sender_name">Your name (optional)</label>
+            <input type="text" id="sender_name" name="sender_name" />
+          </div>
+          <div class="field">
+            <label for="sender_email">Your email (optional)</label>
+            <input type="email" id="sender_email" name="sender_email" />
+          </div>
+        </div>
+        <button type="submit" id="submit-btn">Create signing link</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Your documents</h2>
+      <ul class="doc-list" id="doc-list">
+        <li class="muted" id="empty-state">No documents yet — send one above.</li>
+      </ul>
+    </div>
+  </main>
+
+  <script>
+    const form = document.getElementById('send-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const errorBox = document.getElementById('form-error');
+    const successBox = document.getElementById('form-success');
+    const signingUrlEl = document.getElementById('signing-url');
+    const openLink = document.getElementById('open-link');
+    const copyBtn = document.getElementById('copy-link');
+    const docList = document.getElementById('doc-list');
+    const emptyState = document.getElementById('empty-state');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorBox.style.display = 'none';
+      successBox.style.display = 'none';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Sending…';
+      try {
+        const fd = new FormData(form);
+        const res = await fetch('/api/documents', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        signingUrlEl.textContent = data.signing_url;
+        openLink.href = data.signing_url;
+        successBox.style.display = 'block';
+        form.reset();
+        loadDocs();
+      } catch (err) {
+        errorBox.textContent = err.message;
+        errorBox.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create signing link';
+      }
+    });
+
+    copyBtn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(signingUrlEl.textContent);
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => copyBtn.textContent = 'Copy link', 1500);
+      } catch {}
+    });
+
+    async function loadDocs() {
+      const res = await fetch('/api/documents');
+      const items = await res.json();
+      docList.innerHTML = '';
+      if (!items.length) {
+        emptyState.style.display = 'block';
+        docList.appendChild(emptyState);
+        return;
+      }
+      for (const it of items) {
+        const li = document.createElement('li');
+        const left = document.createElement('div');
+        left.innerHTML = `
+          <div class="doc-title">${escapeHtml(it.title || it.original_name)}</div>
+          <div class="doc-meta">
+            To ${escapeHtml(it.signer_name)} &lt;${escapeHtml(it.signer_email)}&gt; ·
+            ${new Date(it.created_at).toLocaleString()}
+            ${it.status === 'signed' ? ` · signed ${new Date(it.signed_at).toLocaleString()} from ${escapeHtml(it.signed_ip || '')}` : ''}
+          </div>`;
+        const right = document.createElement('div');
+        right.style.display = 'flex';
+        right.style.alignItems = 'center';
+        right.style.gap = '10px';
+        right.innerHTML = `
+          <span class="badge ${it.status}">${it.status}</span>
+          <a class="btn secondary" href="${it.signing_url}" target="_blank" rel="noopener">View</a>`;
+        li.appendChild(left);
+        li.appendChild(right);
+        docList.appendChild(li);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s || '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]));
+    }
+
+    loadDocs();
+  </script>
+</body>
+</html>

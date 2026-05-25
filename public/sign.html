@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sign document — InkPath</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">Ink<span>Path</span></div>
+    <span class="muted">Secure signing</span>
+  </header>
+
+  <main id="root">
+    <div class="card"><p class="muted">Loading…</p></div>
+  </main>
+
+  <template id="tpl-sign">
+    <div class="card">
+      <h1 id="doc-title"></h1>
+      <p class="muted">Signer: <strong id="signer-name"></strong> &lt;<span id="signer-email"></span>&gt;</p>
+    </div>
+
+    <div class="card">
+      <h2>Document</h2>
+      <div id="doc-container"></div>
+    </div>
+
+    <div class="card">
+      <h2>Your signature</h2>
+      <div id="sign-error" class="error-banner" style="display:none;"></div>
+      <div class="tabs">
+        <div class="tab active" data-tab="draw">Draw</div>
+        <div class="tab" data-tab="type">Type</div>
+      </div>
+      <div class="tab-panel active" data-panel="draw">
+        <p class="muted">Sign with your finger (touch) or mouse below.</p>
+        <canvas id="signature-pad"></canvas>
+        <div style="margin-top:10px; display:flex; gap:8px;">
+          <button class="secondary" id="clear-pad">Clear</button>
+        </div>
+      </div>
+      <div class="tab-panel" data-panel="type">
+        <label for="typed-name">Type your full legal name</label>
+        <input type="text" id="typed-name" placeholder="e.g. Jane Q. Signer" />
+        <div class="typed-preview" id="typed-preview">Your signature</div>
+      </div>
+
+      <div style="margin-top:18px; display:flex; gap:10px; align-items:center;">
+        <button id="submit-sign">I agree and sign</button>
+        <span class="muted">By signing, you consent to be electronically bound and to record your IP and timestamp.</span>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-signed">
+    <div class="card">
+      <div class="success-banner">This document has been signed.</div>
+      <h1 id="doc-title"></h1>
+      <p class="muted">Signer: <strong id="signer-name"></strong> &lt;<span id="signer-email"></span>&gt;</p>
+    </div>
+    <div class="card">
+      <h2>Signed signature</h2>
+      <div id="signed-display" class="signed-display"></div>
+    </div>
+    <div class="card">
+      <h2>Audit trail</h2>
+      <dl class="audit-grid" id="audit"></dl>
+    </div>
+    <div class="card">
+      <h2>Document</h2>
+      <div id="doc-container"></div>
+    </div>
+  </template>
+
+  <script>
+    const token = location.pathname.split('/').pop();
+    const root = document.getElementById('root');
+
+    async function init() {
+      const res = await fetch(`/api/requests/${encodeURIComponent(token)}`);
+      if (!res.ok) {
+        root.innerHTML = `<div class="card"><div class="error-banner">This signing link is invalid or has expired.</div></div>`;
+        return;
+      }
+      const data = await res.json();
+      if (data.status === 'signed') renderSigned(data);
+      else renderSign(data);
+    }
+
+    function renderDocument(container, doc) {
+      if (doc.mime_type === 'application/pdf') {
+        const iframe = document.createElement('iframe');
+        iframe.src = doc.url;
+        iframe.className = 'doc-viewer';
+        container.appendChild(iframe);
+      } else if (doc.mime_type.startsWith('image/')) {
+        const img = document.createElement('img');
+        img.src = doc.url;
+        img.style.maxWidth = '100%';
+        img.style.borderRadius = '8px';
+        container.appendChild(img);
+      } else {
+        const a = document.createElement('a');
+        a.href = doc.url;
+        a.textContent = 'Download document';
+        a.target = '_blank';
+        container.appendChild(a);
+      }
+    }
+
+    function renderSign(data) {
+      const node = document.getElementById('tpl-sign').content.cloneNode(true);
+      root.innerHTML = '';
+      root.appendChild(node);
+
+      document.getElementById('doc-title').textContent = data.document.title || data.document.original_name;
+      document.getElementById('signer-name').textContent = data.signer_name;
+      document.getElementById('signer-email').textContent = data.signer_email;
+      renderDocument(document.getElementById('doc-container'), data.document);
+
+      setupTabs();
+      const pad = setupSignaturePad();
+      setupTypedPreview();
+
+      document.getElementById('clear-pad').addEventListener('click', () => pad.clear());
+
+      document.getElementById('submit-sign').addEventListener('click', async () => {
+        const errBox = document.getElementById('sign-error');
+        errBox.style.display = 'none';
+        const activeTab = document.querySelector('.tab.active').dataset.tab;
+        let payload;
+        if (activeTab === 'draw') {
+          if (pad.isEmpty()) {
+            errBox.textContent = 'Please draw your signature first.';
+            errBox.style.display = 'block';
+            return;
+          }
+          payload = { signature_type: 'drawn', signature_data: pad.toDataURL('image/png') };
+        } else {
+          const name = document.getElementById('typed-name').value.trim();
+          if (!name) {
+            errBox.textContent = 'Please type your name.';
+            errBox.style.display = 'block';
+            return;
+          }
+          payload = { signature_type: 'typed', typed_name: name };
+        }
+        const btn = document.getElementById('submit-sign');
+        btn.disabled = true; btn.textContent = 'Signing…';
+        try {
+          const res = await fetch(`/api/requests/${encodeURIComponent(token)}/sign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const result = await res.json();
+          if (!res.ok) throw new Error(result.error || 'Failed to sign');
+          init();
+        } catch (err) {
+          errBox.textContent = err.message;
+          errBox.style.display = 'block';
+          btn.disabled = false; btn.textContent = 'I agree and sign';
+        }
+      });
+    }
+
+    function renderSigned(data) {
+      const node = document.getElementById('tpl-signed').content.cloneNode(true);
+      root.innerHTML = '';
+      root.appendChild(node);
+
+      document.getElementById('doc-title').textContent = data.document.title || data.document.original_name;
+      document.getElementById('signer-name').textContent = data.signer_name;
+      document.getElementById('signer-email').textContent = data.signer_email;
+
+      const sig = document.getElementById('signed-display');
+      if (data.signature_type === 'drawn' && data.signature_data) {
+        const img = document.createElement('img');
+        img.src = data.signature_data;
+        img.alt = 'Signature';
+        sig.appendChild(img);
+      } else if (data.signature_type === 'typed') {
+        const div = document.createElement('div');
+        div.className = 'typed-final';
+        div.textContent = data.typed_name;
+        sig.appendChild(div);
+      }
+
+      const audit = document.getElementById('audit');
+      const rows = [
+        ['Signer name', data.signer_name],
+        ['Signer email', data.signer_email],
+        ['Signature method', data.signature_type === 'drawn' ? 'Drawn (touch/mouse)' : 'Typed name'],
+        ['Signed at', new Date(data.signed_at).toLocaleString() + '  (' + data.signed_at + ')'],
+        ['IP address', data.signed_ip || '—']
+      ];
+      audit.innerHTML = '';
+      for (const [k, v] of rows) {
+        const dt = document.createElement('dt'); dt.textContent = k;
+        const dd = document.createElement('dd'); dd.textContent = v;
+        audit.appendChild(dt); audit.appendChild(dd);
+      }
+
+      renderDocument(document.getElementById('doc-container'), data.document);
+    }
+
+    function setupTabs() {
+      const tabs = document.querySelectorAll('.tab');
+      tabs.forEach(t => t.addEventListener('click', () => {
+        tabs.forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+        document.querySelectorAll('.tab-panel').forEach(p => {
+          p.classList.toggle('active', p.dataset.panel === t.dataset.tab);
+        });
+      }));
+    }
+
+    function setupTypedPreview() {
+      const input = document.getElementById('typed-name');
+      const preview = document.getElementById('typed-preview');
+      input.addEventListener('input', () => {
+        preview.textContent = input.value.trim() || 'Your signature';
+      });
+    }
+
+    function setupSignaturePad() {
+      const canvas = document.getElementById('signature-pad');
+      const ctx = canvas.getContext('2d');
+      let drawing = false;
+      let hasDrawn = false;
+      let last = null;
+
+      function resize() {
+        const ratio = window.devicePixelRatio || 1;
+        const rect = canvas.getBoundingClientRect();
+        canvas.width = rect.width * ratio;
+        canvas.height = rect.height * ratio;
+        ctx.scale(ratio, ratio);
+        ctx.lineWidth = 2.2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = '#1c2238';
+      }
+      resize();
+      window.addEventListener('resize', () => {
+        const data = hasDrawn ? canvas.toDataURL() : null;
+        resize();
+        if (data) {
+          const img = new Image();
+          img.onload = () => ctx.drawImage(img, 0, 0, canvas.getBoundingClientRect().width, canvas.getBoundingClientRect().height);
+          img.src = data;
+        }
+      });
+
+      function pos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const touch = e.touches ? e.touches[0] : e;
+        return { x: touch.clientX - rect.left, y: touch.clientY - rect.top };
+      }
+      function start(e) {
+        e.preventDefault();
+        drawing = true;
+        last = pos(e);
+      }
+      function move(e) {
+        if (!drawing) return;
+        e.preventDefault();
+        const p = pos(e);
+        ctx.beginPath();
+        ctx.moveTo(last.x, last.y);
+        ctx.lineTo(p.x, p.y);
+        ctx.stroke();
+        last = p;
+        hasDrawn = true;
+        canvas.classList.add('has-signature');
+      }
+      function end(e) {
+        drawing = false;
+        last = null;
+      }
+
+      canvas.addEventListener('mousedown', start);
+      canvas.addEventListener('mousemove', move);
+      canvas.addEventListener('mouseup', end);
+      canvas.addEventListener('mouseleave', end);
+      canvas.addEventListener('touchstart', start, { passive: false });
+      canvas.addEventListener('touchmove', move, { passive: false });
+      canvas.addEventListener('touchend', end);
+
+      return {
+        clear: () => {
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.restore();
+          hasDrawn = false;
+          canvas.classList.remove('has-signature');
+        },
+        isEmpty: () => !hasDrawn,
+        toDataURL: (type) => canvas.toDataURL(type || 'image/png')
+      };
+    }
+
+    init();
+  </script>
+</body>
+</html>
