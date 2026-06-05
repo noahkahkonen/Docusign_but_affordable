@@ -55,6 +55,7 @@ CREATE TABLE "signers" (
     "consent_ip" TEXT,
     "consent_user_agent" TEXT,
     "signed_at" TIMESTAMP(3),
+    "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "signers_pkey" PRIMARY KEY ("id")
 );

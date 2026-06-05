@@ -35,13 +35,15 @@ JWT bearer flow** (no stored passwords).
 ├── src/                  # Fastify backend (TypeScript)
 │   ├── config/env.ts     # validated configuration (single source of truth)
 │   ├── salesforce/       # JWT auth, jsforce client, Files read-path
-│   ├── routes/           # health + M1 read-path API
+│   ├── signing/          # signing engine: requests lifecycle, pdf, tokens, consent, audit
+│   ├── routes/           # health, read-path, sender API, signer API, portal
 │   ├── lib/              # logger, hashing
 │   └── server.ts         # bootstrap
+├── public/portal.html    # self-contained signer portal (pdf.js + draw/type signature)
 ├── prisma/               # data model + migrations
 ├── scripts/              # check-read-path.ts (M1 acceptance script)
 ├── salesforce/           # SFDX project: Signature_Request__c object + fields
-├── test/                 # Vitest
+├── test/                 # Vitest (unit + an end-to-end signing-flow integration test)
 ├── legacy/               # the original v0.1 SQLite sketch, kept for reference only
 ├── Procfile  app.json    # Heroku deploy
 └── .env.example          # config contract
@@ -106,6 +108,50 @@ The same path is exposed over HTTP:
 | `GET` | `/api/salesforce/records/:recordId/files/latest` | the default "most recent" file |
 | `GET` | `/api/salesforce/files/:contentVersionId/hash` | download + SHA-256 a file |
 
+## The signing engine (M2)
+
+The engine turns a Salesforce file into a signed PDF through a tokenized public portal, capturing
+ESIGN/UETA evidence at every step.
+
+**Lifecycle:** `DRAFT` → `SENT` → (`PARTIALLY_SIGNED`) → `COMPLETED` (or `DECLINED`). Signers are
+**parallel** — each gets a single-use link and can sign independently; the request completes once
+all have signed. The original PDF is pulled and hashed at creation; on completion every signer's
+fields are flattened into the PDF and the result is hashed.
+
+**Sender/admin API** (guarded by `BACKEND_API_KEY` via the `x-api-key` header — this is what the
+Salesforce Named Credential will present in M4):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `POST` | `/api/requests` | create a DRAFT from a Salesforce file + signers + field placements |
+| `POST` | `/api/requests/:id/send` | mint single-use signer tokens, return signing links |
+| `GET` | `/api/requests/:id` | sender status view incl. the full audit trail |
+
+**Signer-facing API** (authenticated solely by the URL token; captures IP + user-agent):
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/sign/:token` | the signer portal (HTML page) |
+| `GET` | `/api/sign/:token` | signer context: document, fields, consent disclosure |
+| `GET` | `/api/sign/:token/document` | the source PDF bytes (rendered client-side by pdf.js) |
+| `POST` | `/api/sign/:token/consent` | record affirmative electronic-records consent |
+| `POST` | `/api/sign/:token/submit` | submit field values and sign |
+| `POST` | `/api/sign/:token/decline` | decline to sign |
+
+**Fields:** `SIGNATURE`, `INITIALS`, `DATE`, and free-text `TEXT` (e.g. a "Title" box → "CEO"),
+each assigned to one signer and placed in PDF points with a **top-left origin** (0-based page
+index) — the convention shared by the `fields` table, the flattener, and the portal overlay.
+
+**Tokens** are 256-bit, single-use, and expiring; only their SHA-256 hash is stored — the raw
+token lives only in the signing link.
+
+**Portal:** a single self-contained, emerald-branded page served by the backend (`public/portal.html`).
+It renders the PDF with pdf.js, overlays the signer's fields, gates on the consent disclosure, and
+captures a drawn (finger/mouse) or typed signature.
+> **Deviation from the original spec (flagged):** the portal is served by the backend rather than
+> a separate Next.js app, so the whole product runs on one Heroku dyno. The signing API is the
+> real contract; the page can be promoted to an SPA later with no backend changes.
+
 ## Deploying to Heroku
 
 ```bash
@@ -136,8 +182,9 @@ Verified against the target org (API **v60.0**): standard Files objects
 
 - [x] **M1 — Foundations:** backend scaffold, validated config, Postgres schema, Salesforce JWT
   auth, latest-file read path proven end-to-end.
-- [ ] **M2 — Signing engine:** PDF field placement, tokenized signer portal, ESIGN/UETA consent
-  disclosure, capture signature + IP + timestamps, flatten output.
+- [x] **M2 — Signing engine:** PDF field placement + flattening (pdf-lib), single-use tokenized
+  signer portal, ESIGN/UETA consent disclosure, signature/initials/date/text fields, IP +
+  user-agent + timestamp capture, parallel multi-signer completion. End-to-end integration test.
 - [ ] **M3 — Audit & write-back:** Certificate of Completion, hashing/tamper-evidence, write signed
   PDF + certificate back to Salesforce, update `Signature_Request__c`.
 - [ ] **M4 — Salesforce UX:** "Send for Signature" LWC Quick Action, status display, Named

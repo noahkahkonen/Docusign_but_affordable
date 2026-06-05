@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <title>{{BRAND_NAME}} — Sign Document</title>
+    <style>
+      :root {
+        --brand: {{BRAND_PRIMARY_COLOR}};
+        --brand-soft: color-mix(in srgb, var(--brand) 12%, white);
+        --brand-ring: color-mix(in srgb, var(--brand) 35%, white);
+        --ink: #0f172a;
+        --muted: #64748b;
+        --line: #e2e8f0;
+        --bg: #f6f8fa;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+      header {
+        position: sticky; top: 0; z-index: 20;
+        display: flex; align-items: center; gap: 12px;
+        padding: 14px 20px; background: #fff; border-bottom: 1px solid var(--line);
+      }
+      header .logo { height: 28px; }
+      header .brand { font-weight: 700; font-size: 18px; letter-spacing: -0.01em; }
+      header .brand .dot { color: var(--brand); }
+      header .doc { margin-left: auto; color: var(--muted); font-size: 14px; max-width: 50%;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .wrap { max-width: 880px; margin: 0 auto; padding: 24px 16px 120px; }
+
+      .card { background: #fff; border: 1px solid var(--line); border-radius: 14px;
+        box-shadow: 0 1px 2px rgba(15,23,42,0.04); }
+      .pad { padding: 22px; }
+
+      h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: -0.02em; }
+      p.lead { color: var(--muted); margin: 0 0 18px; }
+
+      .btn { appearance: none; border: 1px solid transparent; border-radius: 10px;
+        padding: 11px 18px; font-size: 15px; font-weight: 600; cursor: pointer; }
+      .btn-primary { background: var(--brand); color: #fff; }
+      .btn-primary:hover { filter: brightness(0.96); }
+      .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn-ghost { background: #fff; color: var(--ink); border-color: var(--line); }
+      .btn-link { background: none; border: none; color: var(--muted); cursor: pointer;
+        text-decoration: underline; font-size: 14px; }
+
+      /* Consent modal */
+      .overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45);
+        display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+      .overlay.hidden, .hidden { display: none !important; }
+      .modal { background: #fff; border-radius: 16px; max-width: 560px; width: 100%;
+        max-height: 86vh; display: flex; flex-direction: column; overflow: hidden; }
+      .modal .head { padding: 20px 22px 0; }
+      .modal .body { padding: 14px 22px; overflow: auto; }
+      .disclosure { white-space: pre-wrap; font-size: 13.5px; line-height: 1.5; color: #1f2937;
+        background: var(--brand-soft); border: 1px solid var(--brand-ring); border-radius: 10px;
+        padding: 14px; max-height: 320px; overflow: auto; }
+      .agree { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 4px; font-size: 14px; }
+      .agree input { margin-top: 3px; width: 16px; height: 16px; accent-color: var(--brand); }
+      .modal .foot { padding: 16px 22px 22px; display: flex; gap: 10px; justify-content: flex-end;
+        border-top: 1px solid var(--line); margin-top: 8px; }
+
+      /* Document pages */
+      .pages { margin-top: 18px; display: flex; flex-direction: column; align-items: center; gap: 18px; }
+      .page { position: relative; background: #fff; box-shadow: 0 1px 4px rgba(15,23,42,0.12);
+        border-radius: 6px; overflow: hidden; }
+      .page canvas { display: block; }
+
+      .field { position: absolute; border: 1.5px dashed var(--brand);
+        background: color-mix(in srgb, var(--brand) 8%, transparent);
+        border-radius: 4px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+        font-size: 12px; color: var(--brand); font-weight: 600; user-select: none; }
+      .field.filled { border-style: solid;
+        background: color-mix(in srgb, var(--brand) 5%, transparent); }
+      .field input { width: 100%; height: 100%; border: none; background: transparent;
+        font: inherit; color: var(--ink); padding: 0 4px; }
+      .field img { max-width: 100%; max-height: 100%; }
+      .field .tag { position: absolute; top: -18px; left: 0; font-size: 10px; color: var(--muted);
+        background: #fff; padding: 0 4px; border-radius: 3px; white-space: nowrap; }
+
+      /* Signature modal */
+      .tabs { display: flex; gap: 8px; margin: 4px 0 12px; }
+      .tab { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: #fff;
+        cursor: pointer; font-weight: 600; font-size: 14px; }
+      .tab.active { background: var(--brand); color: #fff; border-color: var(--brand); }
+      .sigpad { border: 1px solid var(--line); border-radius: 10px; background: #fff;
+        touch-action: none; width: 100%; height: 180px; }
+      .typed { width: 100%; padding: 12px 14px; font-size: 30px; border: 1px solid var(--line);
+        border-radius: 10px; font-family: "Snell Roundhand", "Segoe Script", cursive; }
+
+      /* Action bar */
+      .actionbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: #fff;
+        border-top: 1px solid var(--line); padding: 14px 16px;
+        display: flex; align-items: center; gap: 12px; justify-content: center; }
+      .actionbar .inner { width: 100%; max-width: 880px; display: flex; align-items: center; gap: 12px; }
+      .progress { color: var(--muted); font-size: 14px; }
+      .actionbar .spacer { margin-left: auto; }
+
+      .state { text-align: center; padding: 48px 22px; }
+      .state .check { width: 56px; height: 56px; border-radius: 50%; background: var(--brand-soft);
+        color: var(--brand); display: inline-flex; align-items: center; justify-content: center;
+        font-size: 30px; margin-bottom: 14px; border: 1px solid var(--brand-ring); }
+      .legal { color: var(--muted); font-size: 12px; margin-top: 26px; text-align: center; line-height: 1.5; }
+      .err { color: #b91c1c; font-size: 14px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img class="logo hidden" id="logo" alt="" />
+      <span class="brand">{{BRAND_NAME}}<span class="dot">.</span></span>
+      <span class="doc" id="docName"></span>
+    </header>
+
+    <div class="wrap" id="wrap">
+      <div class="card pad state" id="loading">Loading your document…</div>
+    </div>
+
+    <!-- Consent modal -->
+    <div class="overlay hidden" id="consentOverlay">
+      <div class="modal">
+        <div class="head"><h1>Review &amp; consent</h1>
+          <p class="lead">Please review and agree before signing.</p></div>
+        <div class="body">
+          <div class="disclosure" id="disclosure"></div>
+          <label class="agree">
+            <input type="checkbox" id="agreeBox" />
+            <span id="agreeLabel">I agree to use electronic records and signatures for this transaction.</span>
+          </label>
+          <div class="err hidden" id="consentErr"></div>
+        </div>
+        <div class="foot">
+          <button class="btn-link" id="declineBtn">Decline</button>
+          <button class="btn btn-primary" id="agreeBtn" disabled>Agree &amp; continue</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Signature modal -->
+    <div class="overlay hidden" id="sigOverlay">
+      <div class="modal">
+        <div class="head"><h1 id="sigTitle">Add your signature</h1></div>
+        <div class="body">
+          <div class="tabs">
+            <div class="tab active" data-tab="draw">Draw</div>
+            <div class="tab" data-tab="type">Type</div>
+          </div>
+          <div id="drawPane"><canvas class="sigpad" id="sigpad"></canvas></div>
+          <div id="typePane" class="hidden">
+            <input class="typed" id="typedInput" placeholder="Type your name" />
+          </div>
+        </div>
+        <div class="foot">
+          <button class="btn-link" id="sigClear">Clear</button>
+          <button class="btn btn-ghost" id="sigCancel">Cancel</button>
+          <button class="btn btn-primary" id="sigApply">Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="actionbar hidden" id="actionbar">
+      <div class="inner">
+        <span class="progress" id="progress"></span>
+        <span class="spacer"></span>
+        <button class="btn-link" id="declineBtn2">Decline</button>
+        <button class="btn btn-primary" id="finishBtn" disabled>Finish &amp; sign</button>
+      </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      const PDFJS = window["pdfjsLib"];
+      if (PDFJS) {
+        PDFJS.GlobalWorkerOptions.workerSrc =
+          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      }
+
+      const token = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
+      const api = (p) => `/api/sign/${encodeURIComponent(token)}${p}`;
+
+      const state = { ctx: null, values: {}, fieldsById: {}, activeFieldId: null };
+
+      const $ = (id) => document.getElementById(id);
+
+      async function boot() {
+        try {
+          const res = await fetch(api(""));
+          if (!res.ok) throw new Error((await res.json()).message || "This link is not valid.");
+          const ctx = await res.json();
+          state.ctx = ctx;
+          $("docName").textContent = ctx.request.documentName || "";
+          const logoUrl = "{{BRAND_LOGO_URL}}";
+          if (logoUrl) { $("logo").src = logoUrl; $("logo").classList.remove("hidden"); }
+
+          if (ctx.request.status === "COMPLETED") return showState("This document is already completed.", "✓");
+          if (ctx.request.status === "DECLINED" || ctx.request.status === "VOIDED")
+            return showState("This document is no longer available for signing.", "—");
+          if (ctx.signer.status === "SIGNED") return showState("You have already signed. Thank you!", "✓");
+
+          // Consent gate first.
+          if (!ctx.signer.consented) showConsent(ctx.consent);
+          else await renderDocument();
+        } catch (e) {
+          showState(e.message, "—");
+        }
+      }
+
+      function showState(msg, glyph) {
+        $("actionbar").classList.add("hidden");
+        $("wrap").innerHTML =
+          `<div class="card pad state"><div class="check">${glyph || "✓"}</div>` +
+          `<h1>${msg}</h1><div class="legal">Powered by {{BRAND_NAME}} — electronic signatures ` +
+          `aligned with the U.S. ESIGN Act and UETA. This is not legal advice.</div></div>`;
+      }
+
+      /* ---------- Consent ---------- */
+      function showConsent(consent) {
+        $("disclosure").textContent = consent.text;
+        $("consentOverlay").classList.remove("hidden");
+        $("agreeBox").addEventListener("change", (e) => {
+          $("agreeBtn").disabled = !e.target.checked;
+        });
+        $("agreeBtn").addEventListener("click", async () => {
+          $("agreeBtn").disabled = true;
+          try {
+            const r = await fetch(api("/consent"), { method: "POST" });
+            if (!r.ok) throw new Error("Could not record consent.");
+            $("consentOverlay").classList.add("hidden");
+            await renderDocument();
+          } catch (e) {
+            $("consentErr").textContent = e.message;
+            $("consentErr").classList.remove("hidden");
+            $("agreeBtn").disabled = false;
+          }
+        });
+        $("declineBtn").addEventListener("click", decline);
+      }
+
+      async function decline() {
+        if (!confirm("Decline to sign this document?")) return;
+        await fetch(api("/decline"), { method: "POST" });
+        showState("You declined to sign. The sender has been notified.", "—");
+      }
+
+      /* ---------- Document + fields ---------- */
+      async function renderDocument() {
+        $("wrap").innerHTML = '<div class="pages" id="pages"></div>' +
+          '<div class="legal">By signing you agree your electronic signature is legally binding ' +
+          'under the U.S. ESIGN Act and UETA. {{BRAND_NAME}} is not a law firm and this is not legal advice.</div>';
+        $("actionbar").classList.remove("hidden");
+        $("declineBtn2").addEventListener("click", decline);
+        $("finishBtn").addEventListener("click", finish);
+
+        const data = await fetch(api("/document")).then((r) => r.arrayBuffer());
+        const pdf = await PDFJS.getDocument({ data }).promise;
+        const pagesEl = $("pages");
+        const maxWidth = Math.min(pagesEl.clientWidth || 820, 820);
+
+        for (const layout of state.ctx.pages) {
+          const page = await pdf.getPage(layout.pageIndex + 1);
+          const unscaled = page.getViewport({ scale: 1 });
+          const scale = maxWidth / unscaled.width;
+          const viewport = page.getViewport({ scale });
+
+          const pageEl = document.createElement("div");
+          pageEl.className = "page";
+          pageEl.style.width = viewport.width + "px";
+          pageEl.style.height = viewport.height + "px";
+          const canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          pageEl.appendChild(canvas);
+          pagesEl.appendChild(pageEl);
+          await page.render({ canvasContext: canvas.getContext("2d"), viewport }).promise;
+
+          for (const f of state.ctx.fields.filter((x) => x.pageIndex === layout.pageIndex)) {
+            pageEl.appendChild(makeFieldEl(f, scale));
+          }
+        }
+        updateProgress();
+      }
+
+      function makeFieldEl(f, scale) {
+        state.fieldsById[f.id] = f;
+        const el = document.createElement("div");
+        el.className = "field";
+        el.dataset.fieldId = f.id;
+        el.style.left = f.x * scale + "px";
+        el.style.top = f.y * scale + "px";
+        el.style.width = f.width * scale + "px";
+        el.style.height = f.height * scale + "px";
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = (f.label || f.type) + (f.required ? " *" : "");
+        el.appendChild(tag);
+
+        if (f.type === "TEXT" || f.type === "DATE") {
+          const input = document.createElement("input");
+          input.type = f.type === "DATE" ? "date" : "text";
+          input.placeholder = f.type === "DATE" ? "" : (f.label || "Type here");
+          if (f.type === "DATE") { input.value = new Date().toISOString().slice(0, 10); }
+          const commit = () => {
+            state.values[f.id] = input.value;
+            el.classList.toggle("filled", !!input.value);
+            updateProgress();
+          };
+          input.addEventListener("input", commit);
+          el.appendChild(input);
+          commit();
+        } else {
+          const label = document.createElement("span");
+          label.textContent = f.type === "INITIALS" ? "Initials" : "Sign";
+          el.appendChild(label);
+          el.addEventListener("click", () => openSignature(f));
+        }
+        return el;
+      }
+
+      function updateProgress() {
+        const required = state.ctx.fields.filter((f) => f.required);
+        const done = required.filter((f) => state.values[f.id]).length;
+        $("progress").textContent = `${done} of ${required.length} required field${required.length === 1 ? "" : "s"} completed`;
+        $("finishBtn").disabled = done < required.length;
+      }
+
+      /* ---------- Signature capture ---------- */
+      let sigMode = "draw", drawing = false, hasInk = false, sctx = null;
+      function openSignature(f) {
+        state.activeFieldId = f.id;
+        $("sigTitle").textContent = f.type === "INITIALS" ? "Add your initials" : "Add your signature";
+        $("sigOverlay").classList.remove("hidden");
+        const c = $("sigpad");
+        c.width = c.clientWidth; c.height = c.clientHeight;
+        sctx = c.getContext("2d");
+        sctx.lineWidth = 2.4; sctx.lineCap = "round"; sctx.strokeStyle = "#0f172a";
+        hasInk = false;
+      }
+      function pos(e, c) {
+        const r = c.getBoundingClientRect();
+        const t = e.touches ? e.touches[0] : e;
+        return { x: t.clientX - r.left, y: t.clientY - r.top };
+      }
+      (function wireSig() {
+        const c = $("sigpad");
+        const start = (e) => { drawing = true; const p = pos(e, c); sctx.beginPath(); sctx.moveTo(p.x, p.y); e.preventDefault(); };
+        const move = (e) => { if (!drawing) return; const p = pos(e, c); sctx.lineTo(p.x, p.y); sctx.stroke(); hasInk = true; e.preventDefault(); };
+        const end = () => { drawing = false; };
+        ["mousedown", "touchstart"].forEach((ev) => c.addEventListener(ev, start));
+        ["mousemove", "touchmove"].forEach((ev) => c.addEventListener(ev, move));
+        ["mouseup", "touchend", "mouseleave"].forEach((ev) => c.addEventListener(ev, end));
+
+        document.querySelectorAll(".tab").forEach((t) =>
+          t.addEventListener("click", () => {
+            document.querySelectorAll(".tab").forEach((x) => x.classList.remove("active"));
+            t.classList.add("active");
+            sigMode = t.dataset.tab;
+            $("drawPane").classList.toggle("hidden", sigMode !== "draw");
+            $("typePane").classList.toggle("hidden", sigMode !== "type");
+          }));
+
+        $("sigClear").addEventListener("click", () => {
+          if (sigMode === "draw") { sctx.clearRect(0, 0, c.width, c.height); hasInk = false; }
+          else $("typedInput").value = "";
+        });
+        $("sigCancel").addEventListener("click", () => $("sigOverlay").classList.add("hidden"));
+        $("sigApply").addEventListener("click", applySignature);
+      })();
+
+      function applySignature() {
+        let dataUrl = null;
+        if (sigMode === "draw") {
+          if (!hasInk) return alert("Please draw your signature first.");
+          dataUrl = $("sigpad").toDataURL("image/png");
+        } else {
+          const name = $("typedInput").value.trim();
+          if (!name) return alert("Please type your name.");
+          dataUrl = renderTyped(name);
+        }
+        const fid = state.activeFieldId;
+        state.values[fid] = dataUrl;
+        const el = document.querySelector(`.field[data-field-id="${fid}"]`);
+        el.classList.add("filled");
+        el.querySelectorAll("span:not(.tag)").forEach((s) => s.remove());
+        const img = document.createElement("img");
+        img.src = dataUrl;
+        el.appendChild(img);
+        $("sigOverlay").classList.add("hidden");
+        updateProgress();
+      }
+
+      function renderTyped(name) {
+        const c = document.createElement("canvas");
+        c.width = 600; c.height = 200;
+        const x = c.getContext("2d");
+        x.fillStyle = "#0f172a";
+        x.font = '64px "Snell Roundhand", "Segoe Script", cursive';
+        x.textBaseline = "middle";
+        x.fillText(name, 20, 110);
+        return c.toDataURL("image/png");
+      }
+
+      /* ---------- Finish ---------- */
+      async function finish() {
+        $("finishBtn").disabled = true;
+        const values = Object.entries(state.values)
+          .filter(([, v]) => v != null && v !== "")
+          .map(([fieldId, value]) => ({ fieldId, value }));
+        try {
+          const r = await fetch(api("/submit"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ values }),
+          });
+          const out = await r.json();
+          if (!r.ok) throw new Error(out.message || "Could not submit your signature.");
+          showState(
+            out.requestStatus === "COMPLETED"
+              ? "Signed and completed. Thank you!"
+              : "Your signature is recorded. Thank you!",
+            "✓",
+          );
+        } catch (e) {
+          alert(e.message);
+          $("finishBtn").disabled = false;
+        }
+      }
+
+      boot();
+    </script>
+  </body>
+</html>

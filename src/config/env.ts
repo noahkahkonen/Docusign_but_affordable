@@ -39,6 +39,11 @@ const schema = z.object({
   // Signer access tokens: how long a signing link stays valid.
   SIGNING_LINK_TTL_HOURS: z.coerce.number().int().positive().default(168), // 7 days
 
+  // Shared secret guarding the sender/admin API (create/send requests). The Salesforce side
+  // presents this via the Named Credential. If unset (dev only), the guard is disabled and a
+  // warning is logged at boot.
+  BACKEND_API_KEY: z.string().optional(),
+
   // Branding (light, simple, inviting — emerald). Overridable per-deployment.
   BRAND_NAME: z.string().default("InkPath"),
   BRAND_PRIMARY_COLOR: z.string().default("#10b981"), // emerald-500

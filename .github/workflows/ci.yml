@@ -29,6 +29,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/inkpath
       APP_BASE_URL: http://localhost:3000
+      RUN_DB_TESTS: "1" # enables the end-to-end signing-flow integration test
 
     steps:
       - uses: actions/checkout@v4

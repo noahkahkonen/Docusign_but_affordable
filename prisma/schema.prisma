@@ -125,6 +125,8 @@ model Signer {
 
   signedAt DateTime? @map("signed_at")
 
+  createdAt DateTime @default(now()) @map("created_at")
+
   fields      Field[]
   auditEvents AuditEvent[]
 

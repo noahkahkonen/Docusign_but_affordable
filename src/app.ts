@@ -5,6 +5,9 @@ import { env } from "./config/env.js";
 import { logger } from "./lib/logger.js";
 import { healthRoutes } from "./routes/health.js";
 import { salesforceRoutes } from "./routes/salesforce.js";
+import { requestRoutes } from "./routes/requests.js";
+import { signingRoutes } from "./routes/signing.js";
+import { portalRoutes } from "./routes/portal.js";
 
 /**
  * Build the Fastify app. Kept separate from server bootstrap so tests can construct it
@@ -40,6 +43,9 @@ export async function buildApp() {
 
   await app.register(healthRoutes);
   await app.register(salesforceRoutes);
+  await app.register(requestRoutes);
+  await app.register(signingRoutes);
+  await app.register(portalRoutes);
 
   return app;
 }
