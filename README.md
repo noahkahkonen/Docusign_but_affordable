@@ -217,8 +217,8 @@ Full step-by-step: [`salesforce/README.md`](salesforce/README.md).
 
 Verified against the target org (API **v60.0**): standard Files objects
 (`ContentDocumentLink` / `ContentVersion`) and the CRE deal object `TTL_Core__Deal__c`.
-> Note: the org already has DocuSign, Adobe Sign, and S-Docs installed — InkPath is the
-> cost-saving in-house alternative.
+> InkPath is the in-house e-signature engine for this org — it is the signing platform, not an
+> add-on alongside others.
 
 ## Known limitations — deferred before production
 
