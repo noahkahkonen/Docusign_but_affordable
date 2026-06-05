@@ -70,7 +70,10 @@ export default class SendForSignature extends LightningElement {
 
   get documentName() {
     const f = this.selectedFile;
-    return f ? `${f.title}.${f.fileExtension || "pdf"}` : "";
+    if (!f) return "";
+    const ext = f.fileExtension || "pdf";
+    // ContentDocument.Title often already includes the extension — don't double-append it.
+    return f.title.toLowerCase().endsWith(`.${ext.toLowerCase()}`) ? f.title : `${f.title}.${ext}`;
   }
 
   get selectedNotPdf() {
@@ -97,6 +100,7 @@ export default class SendForSignature extends LightningElement {
   get canSend() {
     return (
       !!this.selectedFileId &&
+      !this.selectedNotPdf && // only PDFs can be sent for signature
       !this.sending &&
       this.signers.length > 0 &&
       this.signers.every((s) => s.name && s.email && Object.values(s.fields).some(Boolean))
@@ -116,6 +120,8 @@ export default class SendForSignature extends LightningElement {
     const index = Number(event.target.dataset.index);
     const field = event.target.dataset.field;
     this.signers[index][field] = event.target.value;
+    // Reassign so the canSend / documentName getters re-evaluate (LWC tracks reassignment).
+    this.signers = [...this.signers];
   }
 
   handleFieldToggle(event) {

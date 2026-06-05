@@ -62,6 +62,55 @@ private class InkPathControllerTest {
     }
 
     @isTest
+    static void suggestsSignersForContact() {
+        Contact c = new Contact(LastName = 'Chaykin', Email = 'robert@example.com');
+        insert c;
+
+        Test.startTest();
+        List<InkPathController.SignerSuggestion> s = InkPathController.getSuggestedSigners(c.Id);
+        Test.stopTest();
+
+        System.assertEquals(1, s.size());
+        System.assertEquals('robert@example.com', s[0].email);
+    }
+
+    @isTest
+    static void suggestsSignersForLead() {
+        Lead l = new Lead(LastName = 'Broker', Company = 'Acme', Email = 'lead@example.com');
+        insert l;
+
+        Test.startTest();
+        List<InkPathController.SignerSuggestion> s = InkPathController.getSuggestedSigners(l.Id);
+        Test.stopTest();
+
+        System.assertEquals(1, s.size());
+        System.assertEquals('lead@example.com', s[0].email);
+    }
+
+    @isTest
+    static void suggestsSignersForOpportunity() {
+        Account a = new Account(Name = 'Acme LLC');
+        insert a;
+        Contact c = new Contact(LastName = 'Seller', Email = 'seller@example.com', AccountId = a.Id);
+        insert c;
+        Opportunity o = new Opportunity(
+            Name = '123 Main St Deal',
+            StageName = 'Prospecting',
+            CloseDate = Date.today().addDays(30),
+            AccountId = a.Id
+        );
+        insert o;
+        insert new OpportunityContactRole(OpportunityId = o.Id, ContactId = c.Id, IsPrimary = true);
+
+        Test.startTest();
+        List<InkPathController.SignerSuggestion> s = InkPathController.getSuggestedSigners(o.Id);
+        Test.stopTest();
+
+        System.assertEquals(1, s.size());
+        System.assertEquals('seller@example.com', s[0].email);
+    }
+
+    @isTest
     static void sendsForSignature() {
         Account a = new Account(Name = 'Acme LLC');
         insert a;

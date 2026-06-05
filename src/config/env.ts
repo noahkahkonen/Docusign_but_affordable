@@ -50,7 +50,18 @@ const schema = z.object({
   BRAND_LOGO_URL: z.string().optional(),
   BRAND_SENDER_NAME: z.string().default("InkPath Signatures"),
   BRAND_SENDER_EMAIL: z.string().email().default("no-reply@example.com"),
-});
+  })
+  .superRefine((val, ctx) => {
+    // The sender/admin API hands out signed contracts and audit trails. Refuse to boot in
+    // production without a key rather than silently serving it unguarded.
+    if (val.NODE_ENV === "production" && !val.BACKEND_API_KEY) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["BACKEND_API_KEY"],
+        message: "BACKEND_API_KEY is required when NODE_ENV=production (the sender API must be guarded).",
+      });
+    }
+  });
 
 const parsed = schema.safeParse(process.env);
 

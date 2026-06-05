@@ -28,6 +28,10 @@
       "required": true
     },
     "SF_API_VERSION": { "value": "60.0" },
+    "BACKEND_API_KEY": {
+      "description": "Shared secret guarding the sender API. Must match the x-api-key custom header on the Salesforce External Credential. Required in production.",
+      "generator": "secret"
+    },
     "BRAND_NAME": { "value": "InkPath" },
     "BRAND_PRIMARY_COLOR": { "value": "#10b981" },
     "BRAND_SENDER_EMAIL": {

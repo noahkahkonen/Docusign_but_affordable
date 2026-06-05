@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { logger } from "../lib/logger.js";
@@ -50,10 +51,21 @@ const createSchema = z.object({
   fields: z.array(fieldSchema).default([]),
 });
 
+/** Constant-time string equality (length-independent via SHA-256). */
+function secretEquals(a: string, b: string): boolean {
+  const ha = createHash("sha256").update(a).digest();
+  const hb = createHash("sha256").update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
 function requireApiKey(req: FastifyRequest, reply: FastifyReply): boolean {
-  if (!env.BACKEND_API_KEY) return true; // dev mode, guard disabled (warned at boot)
-  const presented = req.headers["x-api-key"];
-  if (presented !== env.BACKEND_API_KEY) {
+  // In production the key is required (enforced at boot in env.ts); if it's unset here we're in
+  // dev/test with the guard intentionally disabled (warned at boot).
+  if (!env.BACKEND_API_KEY) return true;
+  const header = req.headers["x-api-key"];
+  // Reject multi-valued headers outright; compare in constant time.
+  const presented = typeof header === "string" ? header : "";
+  if (!presented || !secretEquals(presented, env.BACKEND_API_KEY)) {
     reply.code(401).send({ error: "unauthorized", message: "Invalid or missing API key" });
     return false;
   }

@@ -145,8 +145,10 @@ Salesforce Named Credential will present in M4):
 each assigned to one signer and placed in PDF points with a **top-left origin** (0-based page
 index) — the convention shared by the `fields` table, the flattener, and the portal overlay.
 
-**Tokens** are 256-bit, single-use, and expiring; only their SHA-256 hash is stored — the raw
-token lives only in the signing link.
+**Tokens** are 256-bit and expiring; only their SHA-256 hash is stored — the raw token lives only
+in the signing link. A signer cannot re-sign once SIGNED, but note: the link is not yet invalidated
+on completion (it stays valid until expiry) and the document stays viewable through it — see
+[Known limitations](#known-limitations--deferred-before-production).
 
 **Portal:** a single self-contained, emerald-branded page served by the backend (`public/portal.html`).
 It renders the PDF with pdf.js, overlays the signer's fields, gates on the consent disclosure, and
@@ -187,7 +189,7 @@ heroku addons:create heroku-postgresql:essential-0
 heroku config:set APP_BASE_URL=https://<app>.herokuapp.com \
   SF_CLIENT_ID=… SF_USERNAME=… SF_PRIVATE_KEY="$(cat server.key)" \
   SF_LOGIN_URL=https://login.salesforce.com
-git push heroku claude/cre-esignature-salesforce-F2ShM:main
+git push heroku HEAD:main
 ```
 
 The `release` phase runs `prisma migrate deploy`. (`app.json` supports one-click provisioning.)
@@ -209,6 +211,32 @@ Verified against the target org (API **v60.0**): standard Files objects
 (`ContentDocumentLink` / `ContentVersion`) and the CRE deal object `TTL_Core__Deal__c`.
 > Note: the org already has DocuSign, Adobe Sign, and S-Docs installed — InkPath is the
 > cost-saving in-house alternative.
+
+## Known limitations — deferred before production
+
+A multi-agent code review (M1–M4) surfaced issues that are intentionally **deferred** until after
+sandbox validation. The current build is suitable for a **sandbox pilot with disposable test
+documents**, not for real executed instruments, until these are closed:
+
+- **Signer links are not yet single-use.** A token stays valid (and the document viewable) until
+  its 7-day expiry even after signing; `decline` has no terminal-state guard. Hardening planned:
+  invalidate the token at terminal state, gate read access, shorten TTL.
+- **Parallel-completion race / non-idempotent write-back.** Two signers completing near-simultaneously
+  could trigger completion twice, and a write-back retry after a partial failure can create duplicate
+  Salesforce Files. Planned: single-winner atomic status transition + idempotent uploads.
+- **Documents and signer PII are stored unencrypted** as Postgres `BYTEA`/text ("encrypted at rest"
+  is *not* yet implemented). Retention is also not durable: blobs live only in one Heroku Postgres
+  instance and `audit_events` cascade-delete with the request. Planned: object storage + envelope
+  encryption, durable retention, append-only audit.
+- **No real signer identity verification or email delivery.** Auth is *possession of the link*; the
+  backend returns links rather than emailing them, and OTP is scaffolded but not wired. "Verified
+  email" is aspirational until email-OTP lands.
+- **Other hardening:** lock down CORS (currently reflects any origin), de-dupe `LINK_OPENED` audit
+  events, handle rotated PDF pages and 6+ signer auto-placement overlap, `trustProxy: 1` for accurate
+  audit IPs, and add route-level/decline/expiry integration tests.
+
+> ⚖️ Reinforcing the disclaimer above: until the items above are addressed, do not rely on this for
+> legally executed CRE documents. This is not legal advice.
 
 ## Roadmap
 
