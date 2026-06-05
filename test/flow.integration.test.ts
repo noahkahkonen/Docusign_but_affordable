@@ -115,6 +115,8 @@ describe.runIf(run)("signing flow (integration)", () => {
     expect(row.signedPdf).toBeTruthy();
     const reloaded = await PDFDocument.load(Buffer.from(row.signedPdf!));
     expect(reloaded.getPageCount()).toBe(1);
+    // Certificate of Completion is generated even when Salesforce write-back is skipped (no creds).
+    expect(row.certificatePdf).toBeTruthy();
   });
 
   it("rejects a reused/again submit as already signed", async () => {

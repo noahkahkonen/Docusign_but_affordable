@@ -12,6 +12,7 @@ import {
   expiryFromNow,
 } from "../src/signing/tokens.js";
 import { consentDisclosure, CONSENT_VERSION } from "../src/signing/consent.js";
+import { buildCertificate } from "../src/signing/certificate.js";
 
 // 1x1 transparent PNG.
 const ONE_PX_PNG =
@@ -83,5 +84,58 @@ describe("consent disclosure", () => {
     expect(version).toBe(CONSENT_VERSION);
     expect(text).toMatch(/ESIGN/);
     expect(text).toMatch(/electronic/i);
+  });
+});
+
+describe("certificate of completion", () => {
+  it("builds a valid PDF including hashes and the event timeline", async () => {
+    const now = new Date("2026-06-05T12:00:00.000Z");
+    const pdf = await buildCertificate({
+      documentName: "Purchase Agreement.pdf",
+      requestId: "11111111-1111-1111-1111-111111111111",
+      status: "COMPLETED",
+      docHashOriginal: "a".repeat(64),
+      docHashFinal: "b".repeat(64),
+      createdAt: now,
+      sentAt: now,
+      completedAt: now,
+      signers: [
+        {
+          name: "Robert Chaykin",
+          email: "robert@example.com",
+          entityLabel: "Acme LLC — Buyer",
+          authMethod: "EMAIL_LINK",
+          consentedAt: now,
+          consentIp: "203.0.113.7",
+          signedAt: now,
+        },
+      ],
+      events: [
+        { occurredAt: now, eventType: "REQUEST_SENT" },
+        { occurredAt: now, eventType: "SIGNED", signerName: "Robert Chaykin", ipAddress: "203.0.113.7" },
+        { occurredAt: now, eventType: "COMPLETED" },
+      ],
+    });
+    expect(pdf.length).toBeGreaterThan(0);
+    const reloaded = await PDFDocument.load(pdf);
+    expect(reloaded.getPageCount()).toBeGreaterThanOrEqual(1);
+  });
+
+  it("paginates when there are many events", async () => {
+    const now = new Date();
+    const events = Array.from({ length: 120 }, (_, i) => ({
+      occurredAt: now,
+      eventType: `EVENT_${i}`,
+    }));
+    const pdf = await buildCertificate({
+      documentName: "Big.pdf",
+      requestId: "22222222-2222-2222-2222-222222222222",
+      status: "COMPLETED",
+      createdAt: now,
+      signers: [],
+      events,
+    });
+    const reloaded = await PDFDocument.load(pdf);
+    expect(reloaded.getPageCount()).toBeGreaterThan(1);
   });
 });

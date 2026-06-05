@@ -35,7 +35,7 @@ JWT bearer flow** (no stored passwords).
 ├── src/                  # Fastify backend (TypeScript)
 │   ├── config/env.ts     # validated configuration (single source of truth)
 │   ├── salesforce/       # JWT auth, jsforce client, Files read-path
-│   ├── signing/          # signing engine: requests lifecycle, pdf, tokens, consent, audit
+│   ├── signing/          # engine: lifecycle, pdf, tokens, consent, audit, certificate, write-back
 │   ├── routes/           # health, read-path, sender API, signer API, portal
 │   ├── lib/              # logger, hashing
 │   └── server.ts         # bootstrap
@@ -126,6 +126,9 @@ Salesforce Named Credential will present in M4):
 | `POST` | `/api/requests` | create a DRAFT from a Salesforce file + signers + field placements |
 | `POST` | `/api/requests/:id/send` | mint single-use signer tokens, return signing links |
 | `GET` | `/api/requests/:id` | sender status view incl. the full audit trail |
+| `POST` | `/api/requests/:id/writeback` | retry the Salesforce write-back |
+| `GET` | `/api/requests/:id/signed` | download the flattened signed PDF |
+| `GET` | `/api/requests/:id/certificate` | download the Certificate of Completion |
 
 **Signer-facing API** (authenticated solely by the URL token; captures IP + user-agent):
 
@@ -151,6 +154,30 @@ captures a drawn (finger/mouse) or typed signature.
 > **Deviation from the original spec (flagged):** the portal is served by the backend rather than
 > a separate Next.js app, so the whole product runs on one Heroku dyno. The signing API is the
 > real contract; the page can be promoted to an SPA later with no backend changes.
+
+## Certificate, tamper-evidence & Salesforce write-back (M3)
+
+On completion the engine:
+
+1. **Flattens** every signer's fields into the source PDF and stores the **SHA-256** of that
+   signed PDF (`docHashFinal`); the original was hashed at creation (`docHashOriginal`).
+2. Generates a **Certificate of Completion** PDF — document identity + both hashes, and per signer:
+   name, email, authentication method, consent timestamp + IP, signed timestamp, plus the full
+   timestamped event timeline. (`src/signing/certificate.ts`; paginates automatically.)
+3. **Writes back to Salesforce** (`attemptWriteback`): uploads the **signed PDF with the
+   certificate appended** as a new File on the originating record, uploads the **standalone
+   certificate** as a second File, and **upserts `Signature_Request__c`** (status, dates, both
+   hashes, signer summary, and the signed/certificate `ContentDocument` ids) keyed by the external
+   id `Backend_Request_Id__c`.
+
+Write-back is **best-effort and idempotent**: if Salesforce isn't configured it's skipped; on
+failure a `WRITEBACK_FAILED` audit event is recorded and it can be retried via
+`POST /api/requests/:id/writeback` (uploads create new versions; the record upserts by external id).
+
+> **Before production:** deploy the `salesforce/` SFDX project so `Signature_Request__c` exists, and
+> validate the write-back in a **sandbox** first — the upload primitives are covered by mocked
+> integration tests here, not yet exercised against a live org (to avoid writing files into your
+> production org during development).
 
 ## Deploying to Heroku
 
@@ -185,8 +212,9 @@ Verified against the target org (API **v60.0**): standard Files objects
 - [x] **M2 — Signing engine:** PDF field placement + flattening (pdf-lib), single-use tokenized
   signer portal, ESIGN/UETA consent disclosure, signature/initials/date/text fields, IP +
   user-agent + timestamp capture, parallel multi-signer completion. End-to-end integration test.
-- [ ] **M3 — Audit & write-back:** Certificate of Completion, hashing/tamper-evidence, write signed
-  PDF + certificate back to Salesforce, update `Signature_Request__c`.
+- [x] **M3 — Audit & write-back:** Certificate of Completion (paginating), SHA-256 tamper-evidence
+  on original + signed, signed-PDF-with-certificate + standalone certificate uploaded to the source
+  record, `Signature_Request__c` upserted. Best-effort idempotent write-back with retry endpoint.
 - [ ] **M4 — Salesforce UX:** "Send for Signature" LWC Quick Action, status display, Named
   Credential wiring.
 - [ ] **M5 — Hardening:** multi-signer-per-entity polish, optional OTP auth, retries, tests,

@@ -6,7 +6,10 @@ import {
   createSignatureRequest,
   sendSignatureRequest,
   getRequestStatus,
+  getSignedPdf,
+  getCertificatePdf,
 } from "../signing/requests.js";
+import { attemptWriteback } from "../signing/writeback.js";
 
 /**
  * Sender/admin API — used by the Salesforce LWC (via Named Credential) to create and send
@@ -84,5 +87,31 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
     const status = await getRequestStatus(id);
     if (!status) return reply.code(404).send({ error: "not_found" });
     return status;
+  });
+
+  // Retry the Salesforce write-back (e.g. after a transient failure or once SF is configured).
+  app.post("/api/requests/:id/writeback", async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    return attemptWriteback(id, { ip: req.ip, userAgent: req.headers["user-agent"] });
+  });
+
+  // Download the flattened signed PDF.
+  app.get("/api/requests/:id/signed", async (req, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const doc = await getSignedPdf(id);
+    if (!doc) return reply.code(404).send({ error: "not_available" });
+    reply.header("Content-Type", "application/pdf");
+    reply.header("Content-Disposition", `inline; filename="${encodeURIComponent(doc.name)}-signed.pdf"`);
+    return reply.send(doc.bytes);
+  });
+
+  // Download the Certificate of Completion.
+  app.get("/api/requests/:id/certificate", async (req, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const doc = await getCertificatePdf(id);
+    if (!doc) return reply.code(404).send({ error: "not_available" });
+    reply.header("Content-Type", "application/pdf");
+    reply.header("Content-Disposition", `inline; filename="${encodeURIComponent(doc.name)}-certificate.pdf"`);
+    return reply.send(doc.bytes);
   });
 }

@@ -8,6 +8,7 @@ import { recordAudit } from "./audit.js";
 import { issueToken, hashToken, expiryFromNow } from "./tokens.js";
 import { consentDisclosure } from "./consent.js";
 import { flattenFields, getPageLayouts, type FieldPlacement } from "./pdf.js";
+import { generateCertificate, attemptWriteback } from "./writeback.js";
 
 /**
  * Signature request lifecycle: create (draft) -> send (mint tokens) -> per-signer open/consent/
@@ -431,6 +432,16 @@ async function completeRequest(requestId: string, ctx: RequestContext) {
   });
 
   logger.info({ requestId, docHashFinal }, "Signature request completed");
+
+  // Produce the Certificate of Completion (pure, always) then attempt the Salesforce write-back.
+  // The write-back is best-effort here: a failure is recorded as WRITEBACK_FAILED and can be
+  // retried via POST /api/requests/:id/writeback — it must not break the signer's response.
+  await generateCertificate(requestId);
+  try {
+    await attemptWriteback(requestId, ctx);
+  } catch (err) {
+    logger.error({ requestId, err }, "Deferred write-back; will need retry");
+  }
 }
 
 /** A signer declines. Declining voids the whole request for v1 (single-document semantics). */
@@ -457,6 +468,20 @@ export async function declineSignature(
     });
   });
   return { status: "DECLINED" as const };
+}
+
+/** The flattened signed PDF for a completed request (sender download). */
+export async function getSignedPdf(requestId: string): Promise<{ name: string; bytes: Buffer } | null> {
+  const request = await prisma.signatureRequest.findUnique({ where: { id: requestId } });
+  if (!request?.signedPdf) return null;
+  return { name: request.documentName, bytes: Buffer.from(request.signedPdf) };
+}
+
+/** The Certificate of Completion PDF for a request (sender download). */
+export async function getCertificatePdf(requestId: string): Promise<{ name: string; bytes: Buffer } | null> {
+  const request = await prisma.signatureRequest.findUnique({ where: { id: requestId } });
+  if (!request?.certificatePdf) return null;
+  return { name: request.documentName, bytes: Buffer.from(request.certificatePdf) };
 }
 
 /** Sender-facing status view of a request (no PDF bytes). */

@@ -111,3 +111,15 @@ export async function createSimplePdf(text: string): Promise<Buffer> {
   const out = await doc.save();
   return Buffer.from(out);
 }
+
+/** Concatenate several PDFs into one (e.g. signed document + certificate of completion). */
+export async function mergePdfs(parts: Buffer[]): Promise<Buffer> {
+  const merged = await PDFDocument.create();
+  for (const part of parts) {
+    const src = await PDFDocument.load(part);
+    const pages = await merged.copyPages(src, src.getPageIndices());
+    for (const p of pages) merged.addPage(p);
+  }
+  const out = await merged.save();
+  return Buffer.from(out);
+}
