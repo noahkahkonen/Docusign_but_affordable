@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <deploymentStatus>Deployed</deploymentStatus>
+    <description>InkPath signature request mirrored from the backend engine. Tracks one document sent for signature from a source CRE record (Opportunity, Account, TTL_Core__Deal__c, etc.).</description>
+    <enableActivities>true</enableActivities>
+    <enableFeeds>true</enableFeeds>
+    <enableHistory>true</enableHistory>
+    <enableReports>true</enableReports>
+    <label>Signature Request</label>
+    <pluralLabel>Signature Requests</pluralLabel>
+    <nameField>
+        <label>Signature Request Name</label>
+        <type>AutoNumber</type>
+        <displayFormat>SR-{00000}</displayFormat>
+    </nameField>
+    <sharingModel>ReadWrite</sharingModel>
+    <visibility>Public</visibility>
+</CustomObject>

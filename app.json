@@ -1,0 +1,41 @@
+{
+  "name": "InkPath",
+  "description": "An affordable, ESIGN/UETA-aligned e-signature engine for Salesforce CRE teams.",
+  "keywords": ["salesforce", "e-signature", "esign", "cre", "pdf"],
+  "stack": "heroku-24",
+  "buildpacks": [{ "url": "heroku/nodejs" }],
+  "addons": [{ "plan": "heroku-postgresql:essential-0" }],
+  "env": {
+    "NODE_ENV": { "value": "production" },
+    "APP_BASE_URL": {
+      "description": "Public https URL of this Heroku app (e.g. https://inkpath.herokuapp.com).",
+      "required": true
+    },
+    "SF_LOGIN_URL": {
+      "description": "https://login.salesforce.com (prod) or https://test.salesforce.com (sandbox).",
+      "value": "https://login.salesforce.com"
+    },
+    "SF_CLIENT_ID": {
+      "description": "Salesforce Connected App Consumer Key.",
+      "required": true
+    },
+    "SF_USERNAME": {
+      "description": "Salesforce integration user to impersonate via JWT bearer.",
+      "required": true
+    },
+    "SF_PRIVATE_KEY": {
+      "description": "PEM private key matching the Connected App certificate (newlines may be escaped as \\n).",
+      "required": true
+    },
+    "SF_API_VERSION": { "value": "60.0" },
+    "BRAND_NAME": { "value": "InkPath" },
+    "BRAND_PRIMARY_COLOR": { "value": "#10b981" },
+    "BRAND_SENDER_EMAIL": {
+      "description": "From address for signing emails.",
+      "required": false
+    }
+  },
+  "scripts": {
+    "postdeploy": "npm run prisma:migrate"
+  }
+}
