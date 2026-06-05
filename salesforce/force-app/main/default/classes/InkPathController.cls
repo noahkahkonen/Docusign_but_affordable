@@ -12,18 +12,30 @@ public with sharing class InkPathController {
 
     // ---- Files on the record ---------------------------------------------------------------
 
-    public class FileOption {
+    public class FileOption implements Comparable {
         @AuraEnabled public String contentVersionId;
         @AuraEnabled public String contentDocumentId;
         @AuraEnabled public String title;
         @AuraEnabled public String fileExtension;
         @AuraEnabled public Datetime modifiedDate;
         @AuraEnabled public Boolean isPdf;
+
+        // Newest first. ContentDocumentLink queries can't ORDER BY (see getRecordFiles), so the
+        // list is sorted in Apex via List.sort() using this comparator.
+        public Integer compareTo(Object other) {
+            Datetime otherDate = ((FileOption) other).modifiedDate;
+            if (modifiedDate == otherDate) return 0;
+            return modifiedDate > otherDate ? -1 : 1;
+        }
     }
 
     @AuraEnabled(cacheable=true)
     public static List<FileOption> getRecordFiles(Id recordId) {
         List<FileOption> files = new List<FileOption>();
+        // NB: a ContentDocumentLink query bounded by LinkedEntityId does NOT support ORDER BY — it
+        // throws System.QueryException (MALFORMED_QUERY) at runtime. We sort in Apex below instead.
+        // Record visibility is governed by `with sharing`; field exposure here is non-sensitive
+        // file metadata (title/extension/dates).
         for (ContentDocumentLink link : [
             SELECT ContentDocumentId,
                    ContentDocument.Title,
@@ -32,7 +44,6 @@ public with sharing class InkPathController {
                    ContentDocument.ContentModifiedDate
             FROM ContentDocumentLink
             WHERE LinkedEntityId = :recordId
-            ORDER BY ContentDocument.ContentModifiedDate DESC
         ]) {
             String ext = link.ContentDocument.FileExtension;
             FileOption f = new FileOption();
@@ -44,6 +55,7 @@ public with sharing class InkPathController {
             f.isPdf = ext != null && ext.equalsIgnoreCase('pdf');
             files.add(f);
         }
+        files.sort(); // newest first (FileOption.compareTo)
         return files;
     }
 
@@ -59,18 +71,22 @@ public with sharing class InkPathController {
         List<SignerSuggestion> out = new List<SignerSuggestion>();
         String objectType = recordId.getSObjectType().getDescribe().getName();
 
+        // WITH USER_MODE enforces the running user's object + field-level security (FLS), so a user
+        // without read access to Name/Email never has that PII surfaced through this controller —
+        // `with sharing` alone only enforces record sharing, not FLS.
         if (objectType == 'Contact') {
-            for (Contact c : [SELECT Name, Email FROM Contact WHERE Id = :recordId AND Email != null]) {
+            for (Contact c : [SELECT Name, Email FROM Contact WHERE Id = :recordId AND Email != null WITH USER_MODE]) {
                 out.add(suggestion(c.Name, c.Email));
             }
         } else if (objectType == 'Lead') {
-            for (Lead l : [SELECT Name, Email FROM Lead WHERE Id = :recordId AND Email != null]) {
+            for (Lead l : [SELECT Name, Email FROM Lead WHERE Id = :recordId AND Email != null WITH USER_MODE]) {
                 out.add(suggestion(l.Name, l.Email));
             }
         } else if (objectType == 'Account') {
             for (Contact c : [
                 SELECT Name, Email FROM Contact
                 WHERE AccountId = :recordId AND Email != null
+                WITH USER_MODE
                 ORDER BY LastModifiedDate DESC LIMIT 25
             ]) {
                 out.add(suggestion(c.Name, c.Email));
@@ -79,6 +95,7 @@ public with sharing class InkPathController {
             for (OpportunityContactRole r : [
                 SELECT Contact.Name, Contact.Email FROM OpportunityContactRole
                 WHERE OpportunityId = :recordId AND Contact.Email != null
+                WITH USER_MODE
             ]) {
                 out.add(suggestion(r.Contact.Name, r.Contact.Email));
             }

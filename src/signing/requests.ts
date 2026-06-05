@@ -151,7 +151,7 @@ export interface SigningLink {
   url: string;
 }
 
-/** Mint a single-use token per signer and move the request to SENT. Returns the signing links. */
+/** Mint a per-signer access token and move the request to SENT. Returns the signing links. */
 export async function sendSignatureRequest(requestId: string): Promise<SigningLink[]> {
   const request = await prisma.signatureRequest.findUnique({
     where: { id: requestId },

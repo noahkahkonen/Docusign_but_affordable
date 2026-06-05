@@ -55,6 +55,29 @@ describe("pdf service", () => {
       ]),
     ).rejects.toThrow(/page 5/);
   });
+
+  it("burns down a pre-existing interactive AcroForm so the signed output is not editable", async () => {
+    // Build a source PDF that already carries a fillable form field (common in CRE/legal templates).
+    const src = await PDFDocument.create();
+    const page = src.addPage([612, 792]);
+    const srcForm = src.getForm();
+    const tf = srcForm.createTextField("counterparty.title");
+    tf.setText("editable before flatten");
+    tf.addToPage(page, { x: 50, y: 600, width: 200, height: 20 });
+    const withForm = Buffer.from(await src.save());
+
+    // Sanity: the source really does have an interactive field.
+    expect((await PDFDocument.load(withForm)).getForm().getFields()).toHaveLength(1);
+
+    const out = await flattenFields(withForm, [
+      { type: "TEXT", pageIndex: 0, x: 100, y: 100, width: 120, height: 18, value: "CEO" },
+    ]);
+
+    // After flattening there must be no interactive form fields left to edit.
+    const reloaded = await PDFDocument.load(out);
+    expect(reloaded.getForm().getFields()).toHaveLength(0);
+    expect(reloaded.getPageCount()).toBe(1);
+  });
 });
 
 describe("token service", () => {

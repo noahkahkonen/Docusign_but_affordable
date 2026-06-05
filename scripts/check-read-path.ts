@@ -50,7 +50,7 @@ async function main(): Promise<void> {
 
   const latest = files[0];
   console.log(`\n3) Downloading latest file "${latest.title}"…`);
-  const bytes = await downloadFileBytes(latest.latestVersionId);
+  const bytes = await downloadFileBytes(latest.contentVersionId);
   console.log(`   ✓ Downloaded ${fmtBytes(bytes.length)}`);
   console.log(`   SHA-256 (original): ${sha256(bytes)}`);
 

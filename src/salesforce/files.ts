@@ -14,7 +14,7 @@ import { salesforce } from "./client.js";
 
 export interface RecordFile {
   contentDocumentId: string;
-  latestVersionId: string; // ContentVersion.Id to pull bytes from
+  contentVersionId: string; // ContentVersion.Id (LatestPublishedVersionId) to pull bytes from
   title: string;
   fileExtension: string | null;
   fileType: string | null;
@@ -56,6 +56,8 @@ interface ContentDocumentLinkRow {
 export async function listRecordFiles(recordId: string): Promise<RecordFile[]> {
   assertSalesforceId(recordId);
 
+  // NB: ContentDocumentLink queries (bounded by LinkedEntityId) do NOT support ORDER BY — adding
+  // one yields MALFORMED_QUERY at runtime. We sort the mapped results in JS instead (see below).
   const soql = `
     SELECT ContentDocumentId,
            ContentDocument.Title,
@@ -66,7 +68,6 @@ export async function listRecordFiles(recordId: string): Promise<RecordFile[]> {
            ContentDocument.ContentModifiedDate
     FROM ContentDocumentLink
     WHERE LinkedEntityId = '${recordId}'
-    ORDER BY ContentDocument.ContentModifiedDate DESC
   `;
 
   const rows = await salesforce.query<ContentDocumentLinkRow>(soql);
@@ -78,7 +79,7 @@ export async function listRecordFiles(recordId: string): Promise<RecordFile[]> {
       const ext = cd.FileExtension?.toLowerCase() ?? null;
       return {
         contentDocumentId: r.ContentDocumentId,
-        latestVersionId: cd.LatestPublishedVersionId,
+        contentVersionId: cd.LatestPublishedVersionId,
         title: cd.Title,
         fileExtension: ext,
         fileType: cd.FileType,
@@ -86,7 +87,9 @@ export async function listRecordFiles(recordId: string): Promise<RecordFile[]> {
         modifiedDate: cd.ContentModifiedDate,
         isPdf: ext === "pdf",
       };
-    });
+    })
+    // Newest first. ContentModifiedDate is ISO 8601, so a lexicographic compare is chronological.
+    .sort((a, b) => (a.modifiedDate < b.modifiedDate ? 1 : a.modifiedDate > b.modifiedDate ? -1 : 0));
 }
 
 /** The single most-recently-modified file on a record, or null if it has none. */

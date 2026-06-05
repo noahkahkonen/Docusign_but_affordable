@@ -2,14 +2,14 @@
   "name": "inkpath",
   "version": "0.2.0",
   "description": "InkPath — an affordable, ESIGN/UETA-aligned e-signature engine for Salesforce CRE teams",
-  "main": "dist/server.js",
+  "main": "dist/src/server.js",
   "type": "module",
   "engines": {
     "node": "22.x"
   },
   "scripts": {
     "build": "prisma generate && tsc -p tsconfig.json",
-    "start": "node dist/server.js",
+    "start": "node dist/src/server.js",
     "dev": "tsx watch src/server.ts",
     "check:read-path": "tsx scripts/check-read-path.ts",
     "prisma:generate": "prisma generate",
@@ -28,11 +28,11 @@
     "jsforce": "^3.6.4",
     "pdf-lib": "^1.17.1",
     "pino": "^9.6.0",
+    "prisma": "^6.2.1",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
-    "prisma": "^6.2.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

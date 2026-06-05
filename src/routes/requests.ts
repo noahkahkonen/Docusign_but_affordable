@@ -1,8 +1,6 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { createHash, timingSafeEqual } from "node:crypto";
+import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { env } from "../config/env.js";
-import { logger } from "../lib/logger.js";
+import { registerApiKeyGuard } from "../lib/api-key-guard.js";
 import {
   createSignatureRequest,
   sendSignatureRequest,
@@ -14,8 +12,8 @@ import { attemptWriteback } from "../signing/writeback.js";
 
 /**
  * Sender/admin API — used by the Salesforce LWC (via Named Credential) to create and send
- * signature requests, and to read status. Guarded by a shared secret (BACKEND_API_KEY). In dev
- * with no key set, the guard is disabled and we warn once at boot.
+ * signature requests, and to read status. Guarded by the shared x-api-key secret (BACKEND_API_KEY)
+ * via registerApiKeyGuard. In dev with no key set, the guard is disabled and we warn once at boot.
  */
 
 const fieldSchema = z.object({
@@ -51,37 +49,8 @@ const createSchema = z.object({
   fields: z.array(fieldSchema).default([]),
 });
 
-/** Constant-time string equality (length-independent via SHA-256). */
-function secretEquals(a: string, b: string): boolean {
-  const ha = createHash("sha256").update(a).digest();
-  const hb = createHash("sha256").update(b).digest();
-  return timingSafeEqual(ha, hb);
-}
-
-function requireApiKey(req: FastifyRequest, reply: FastifyReply): boolean {
-  // In production the key is required (enforced at boot in env.ts); if it's unset here we're in
-  // dev/test with the guard intentionally disabled (warned at boot).
-  if (!env.BACKEND_API_KEY) return true;
-  const header = req.headers["x-api-key"];
-  // Reject multi-valued headers outright; compare in constant time.
-  const presented = typeof header === "string" ? header : "";
-  if (!presented || !secretEquals(presented, env.BACKEND_API_KEY)) {
-    reply.code(401).send({ error: "unauthorized", message: "Invalid or missing API key" });
-    return false;
-  }
-  return true;
-}
-
 export async function requestRoutes(app: FastifyInstance): Promise<void> {
-  if (!env.BACKEND_API_KEY) {
-    logger.warn(
-      "BACKEND_API_KEY is not set — the sender/admin API is UNGUARDED. Set it before production.",
-    );
-  }
-
-  app.addHook("preHandler", async (req, reply) => {
-    if (!requireApiKey(req, reply)) return reply; // short-circuit
-  });
+  registerApiKeyGuard(app);
 
   // Create a DRAFT request from a Salesforce file + signers + field placements.
   app.post("/api/requests", async (req, reply) => {

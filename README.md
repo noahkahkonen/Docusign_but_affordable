@@ -114,9 +114,10 @@ The engine turns a Salesforce file into a signed PDF through a tokenized public 
 ESIGN/UETA evidence at every step.
 
 **Lifecycle:** `DRAFT` → `SENT` → (`PARTIALLY_SIGNED`) → `COMPLETED` (or `DECLINED`). Signers are
-**parallel** — each gets a single-use link and can sign independently; the request completes once
-all have signed. The original PDF is pulled and hashed at creation; on completion every signer's
-fields are flattened into the PDF and the result is hashed.
+**parallel** — each gets their own high-entropy tokenized link and can sign independently; the
+request completes once all have signed. The original PDF is pulled and hashed at creation; on
+completion every signer's fields are flattened into the PDF and the result is hashed. (Links are
+not yet single-use — see [Known limitations](#known-limitations--deferred-before-production).)
 
 **Sender/admin API** (guarded by `BACKEND_API_KEY` via the `x-api-key` header — this is what the
 Salesforce Named Credential will present in M4):
@@ -124,7 +125,7 @@ Salesforce Named Credential will present in M4):
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/requests` | create a DRAFT from a Salesforce file + signers + field placements |
-| `POST` | `/api/requests/:id/send` | mint single-use signer tokens, return signing links |
+| `POST` | `/api/requests/:id/send` | mint per-signer access tokens, return signing links |
 | `GET` | `/api/requests/:id` | sender status view incl. the full audit trail |
 | `POST` | `/api/requests/:id/writeback` | retry the Salesforce write-back |
 | `GET` | `/api/requests/:id/signed` | download the flattened signed PDF |
@@ -174,7 +175,8 @@ On completion the engine:
 
 Write-back is **best-effort and idempotent**: if Salesforce isn't configured it's skipped; on
 failure a `WRITEBACK_FAILED` audit event is recorded and it can be retried via
-`POST /api/requests/:id/writeback` (uploads create new versions; the record upserts by external id).
+`POST /api/requests/:id/writeback` (the `Signature_Request__c` record upserts safely by external id;
+note the file uploads are **not yet idempotent** — a retry creates new Files, see Known limitations).
 
 > **Before production:** deploy the `salesforce/` SFDX project so `Signature_Request__c` exists, and
 > validate the write-back in a **sandbox** first — the upload primitives are covered by mocked
@@ -192,7 +194,12 @@ heroku config:set APP_BASE_URL=https://<app>.herokuapp.com \
 git push heroku HEAD:main
 ```
 
-The `release` phase runs `prisma migrate deploy`. (`app.json` supports one-click provisioning.)
+> Don't forget `heroku config:set BACKEND_API_KEY=…` (a strong secret) — the app refuses to boot in
+> production without it, and it must equal the Salesforce `ApiKey` external-credential value.
+
+The `release` phase runs `prisma migrate deploy`. `prisma` is a **runtime** dependency (not just a
+devDependency) so the CLI survives Heroku's production prune and the release migration actually runs
+against the database. (`app.json` supports one-click provisioning and auto-generates `BACKEND_API_KEY`.)
 
 ## Salesforce setup (summary)
 
@@ -201,9 +208,10 @@ The `release` phase runs `prisma migrate deploy`. (`app.json` supports one-click
 2. Deploy the SFDX project in `salesforce/` — `Signature_Request__c`, the `InkPathController` Apex,
    the **Send for Signature** LWC, the `InkPath_Backend` Named/External Credential, and the
    `InkPath_User` permission set.
-3. In Setup, point the **Named Credential** at your backend URL and add the `x-api-key` custom
-   header (= `BACKEND_API_KEY`) on the External Credential principal, assign the permission set, and
-   surface the LWC (Quick Action or record page). *(Salesforce → backend.)*
+3. In Setup, point the **Named Credential** at your backend URL. The `x-api-key` header ships in
+   metadata, so you only set the **`ApiKey`** external-credential authentication parameter
+   (= `BACKEND_API_KEY`) on the principal, assign the permission set, and surface the LWC (Quick
+   Action or record page). *(Salesforce → backend.)*
 
 Full step-by-step: [`salesforce/README.md`](salesforce/README.md).
 

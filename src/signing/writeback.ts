@@ -4,7 +4,6 @@ import { logger } from "../lib/logger.js";
 import { toPrismaBytes } from "../lib/hash.js";
 import { recordAudit } from "./audit.js";
 import { buildCertificate, type CertificateInput } from "./certificate.js";
-import { mergePdfs } from "./pdf.js";
 import {
   uploadFileToRecord,
   upsertSignatureRequestRecord,
@@ -91,11 +90,17 @@ export interface WritebackResult {
 }
 
 /**
- * Write the signed document (with the certificate appended) + the standalone certificate back to
- * the originating Salesforce record, and upsert the Signature_Request__c mirror.
+ * Write the signed document + the Certificate of Completion back to the originating Salesforce
+ * record as two separate Files, and upsert the Signature_Request__c mirror.
  *
- * Safe to call when Salesforce isn't configured (returns skipped) and safe to retry — uploads
- * create new file versions and the request record is upserted by external id.
+ * The "(Signed)" file is the standalone flattened signed PDF, so its SHA-256 equals the stored
+ * docHashFinal (Final_Document_Hash__c) — i.e. the hash on the record and printed on the
+ * certificate verifies the exact bytes a recipient downloads. The certificate is uploaded
+ * alongside it as its own file.
+ *
+ * Safe to call when Salesforce isn't configured (returns skipped). NOTE: not yet idempotent — a
+ * retry creates NEW ContentDocuments rather than new versions (see README "Known limitations");
+ * the Signature_Request__c record itself is safely upserted by external id.
  */
 export async function attemptWriteback(
   requestId: string,
@@ -118,14 +123,15 @@ export async function attemptWriteback(
   try {
     const signedBuf = Buffer.from(request.signedPdf);
     const certBuf = Buffer.from(request.certificatePdf);
-    const combined = await mergePdfs([signedBuf, certBuf]);
 
     const base = baseName(request.documentName);
+    // Upload the standalone flattened signed PDF (NOT signed+cert merged) so re-hashing the
+    // delivered file reproduces docHashFinal / Final_Document_Hash__c.
     const signed = await uploadFileToRecord(
       request.salesforceRecordId,
       `${base} (Signed)`,
       safeFileName(`${base}-signed.pdf`),
-      combined,
+      signedBuf,
     );
     const certificate = await uploadFileToRecord(
       request.salesforceRecordId,

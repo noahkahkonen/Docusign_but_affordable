@@ -37,19 +37,16 @@ Secrets and environment-specific URLs can't ship in source — set them once aft
 1. **Named Credential URL** — Setup → Named Credentials → *InkPath Backend* → set the URL to your
    Heroku app (e.g. `https://your-inkpath-app.herokuapp.com`). Keep the developer name
    `InkPath_Backend` (the Apex references `callout:InkPath_Backend`).
-2. **⚠️ REQUIRED — External Credential `x-api-key` header (callouts return 401 without it).**
-   The header that authenticates Salesforce → backend is **not** shippable in source (it carries a
-   secret), so it must be added once in Setup. Until you do this, *every* "Send for Signature" click
-   fails with 401.
+2. **⚠️ REQUIRED — set the `ApiKey` secret on the External Credential (callouts 401 without it).**
+   The `x-api-key` **header name + merge wiring now ship in metadata** (the External Credential's
+   `AuthHeader` → `{!$Credential.InkPath_Backend.ApiKey}`), so you no longer hand-type the header.
+   What you **must** still do — because a secret can't live in source — is supply its value once:
    - Setup → Security → **Named Credentials** → **External Credentials** → *InkPath Backend* →
      **Principals** → `InkPathPrincipal` → **Authentication Parameters** → add one:
-     - Name: `ApiKey`  ·  Value: your backend `BACKEND_API_KEY` value
-   - On the same External Credential, add a **Custom Header**:
-     - Name: `x-api-key`  ·  Value: `{!$Credential.InkPath_Backend.ApiKey}`
-   (Salesforce now sends `x-api-key: <your key>` on every callout. The backend requires this header
-   in production and will reject calls without it.)
-   - Alternatively (simplest): on the principal add the Custom Header `x-api-key` with the literal
-     key value directly. Either way the backend just needs to receive `x-api-key`.
+     - Name: `ApiKey` (must match exactly)  ·  Value: your backend `BACKEND_API_KEY` value
+   That's it — the shipped header then resolves to `x-api-key: <your key>` on every callout. Until
+   the `ApiKey` value is set, the header resolves empty and the backend rejects calls with 401.
+   - Verify quickly: any "Send for Signature" that returns 401 means `ApiKey` is unset/mismatched.
 3. **Permission set** — assign **InkPath User** to the relevant users:
    `sf org assign permset --name InkPath_User`. This also grants access to the external-credential
    principal (required for the callout).

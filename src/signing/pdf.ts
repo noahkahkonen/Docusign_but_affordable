@@ -42,7 +42,9 @@ export async function getPageLayouts(pdfBytes: Buffer): Promise<PageLayout[]> {
 }
 
 function dataUrlToBytes(dataUrl: string): { bytes: Uint8Array; isPng: boolean } {
-  const match = /^data:(image\/(png|jpe?g));base64,(.+)$/i.exec(dataUrl);
+  // [\s\S] (not `.`) so a base64 payload split across newlines still matches; Buffer.from(…,
+  // "base64") ignores the embedded whitespace when decoding.
+  const match = /^data:(image\/(png|jpe?g));base64,([\s\S]+)$/i.exec(dataUrl.trim());
   if (!match) {
     throw new Error("Signature value must be a base64 PNG or JPEG data URL");
   }
@@ -95,6 +97,21 @@ export async function flattenFields(
         font: helvetica,
         color: rgb(0.06, 0.06, 0.06),
       });
+    }
+  }
+
+  // Burn down any pre-existing interactive AcroForm so the signed output can't be edited after the
+  // fact (CRE/legal templates frequently ship as fillable forms). Our own marks are drawn directly
+  // into page content above, so there's nothing of ours to lose. A flatten failure on a COMPLETED
+  // document must NOT be swallowed — surface it so we never store an "editable signed" PDF.
+  const form = doc.getForm();
+  if (form.getFields().length > 0) {
+    try {
+      form.flatten();
+    } catch (err) {
+      throw new Error(
+        `Failed to flatten pre-existing AcroForm fields on the signed document: ${(err as Error).message}`,
+      );
     }
   }
 

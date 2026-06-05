@@ -10,8 +10,9 @@ import {
 } from "../signing/requests.js";
 
 /**
- * Signer-facing API — authenticated solely by the single-use token in the URL. No Salesforce
- * login. Every handler captures IP + user-agent for the audit trail.
+ * Signer-facing API — authenticated solely by the high-entropy token in the URL (not yet single-
+ * use; see README "Known limitations"). No Salesforce login. Every handler captures IP +
+ * user-agent for the audit trail.
  */
 
 const tokenParams = z.object({ token: z.string().min(20).max(200) });

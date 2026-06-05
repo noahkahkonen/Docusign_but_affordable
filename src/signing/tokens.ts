@@ -3,10 +3,15 @@ import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 /**
  * Signer access tokens.
  *
- * A token is high-entropy and single-use. We never store the token itself — only its SHA-256
- * hash (in signers.access_token_hash), the same way a password hash is stored. The raw token
- * lives only in the signing link emailed to the signer. Lookups hash the presented token and
- * match against the stored hash in constant time.
+ * A token is high-entropy (256 bits). We never store the token itself — only its SHA-256 hash (in
+ * signers.access_token_hash), the same way a password hash is stored. The raw token lives only in
+ * the signing link sent to the signer. Lookups hash the presented token and match the stored hash
+ * via an indexed DB lookup (see signing/requests.ts).
+ *
+ * NOT yet single-use: a token stays valid until expiry and isn't burned on use — see the README's
+ * "Known limitations" section (256-bit entropy makes guessing infeasible in the meantime).
+ * `tokenMatches` below is a constant-time compare helper (used in tests); the production lookup is
+ * the DB index match described above.
  */
 
 const TOKEN_BYTES = 32; // 256 bits of entropy

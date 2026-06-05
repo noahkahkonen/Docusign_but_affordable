@@ -48,7 +48,7 @@ function iso(d?: Date | null): string {
 function authLabel(method: string): string {
   switch (method) {
     case "EMAIL_LINK":
-      return "Email link (single-use tokenized URL)";
+      return "Email link (tokenized URL)";
     case "EMAIL_OTP":
       return "Email one-time passcode";
     case "SMS_OTP":

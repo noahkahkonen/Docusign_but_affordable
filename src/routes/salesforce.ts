@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { hasSalesforceCredentials } from "../config/env.js";
+import { registerApiKeyGuard } from "../lib/api-key-guard.js";
 import { salesforce } from "../salesforce/client.js";
 import {
   listRecordFiles,
@@ -16,10 +17,14 @@ const fileParams = z.object({ contentVersionId: z.string().min(15).max(18) });
  * M1 read-path routes. These prove the data flow end-to-end: from a Salesforce record Id to
  * the latest attached file's bytes (and its hash) — no signing yet.
  *
- * Every handler requires Salesforce to be configured; we return a clear 503 otherwise so a
- * half-provisioned environment fails legibly.
+ * These return record files and raw PDF bytes, so they are guarded by the same x-api-key secret as
+ * the sender API (Fastify plugins are encapsulated — the requests.ts guard does NOT cover this
+ * sibling plugin). The key check runs FIRST so an unauthenticated caller can't even learn whether
+ * Salesforce is configured. Once authenticated, a missing SF config returns a legible 503.
  */
 export async function salesforceRoutes(app: FastifyInstance): Promise<void> {
+  registerApiKeyGuard(app);
+
   app.addHook("preHandler", async (_req, reply) => {
     if (!hasSalesforceCredentials()) {
       reply.code(503).send({
