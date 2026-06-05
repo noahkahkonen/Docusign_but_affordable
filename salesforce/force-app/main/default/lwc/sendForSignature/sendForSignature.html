@@ -1,0 +1,146 @@
+<template>
+  <lightning-card title="Send for Signature" icon-name="utility:signature">
+    <div class="slds-var-p-horizontal_medium slds-var-p-bottom_medium inkpath">
+      <!-- Loading -->
+      <template if:true={loadingFiles}>
+        <lightning-spinner alternative-text="Loading files" size="small"></lightning-spinner>
+      </template>
+
+      <!-- No files -->
+      <template if:false={loadingFiles}>
+        <template if:false={hasFiles}>
+          <p class="slds-text-color_weak">This record has no attached files to send.</p>
+        </template>
+
+        <template if:true={hasFiles}>
+          <!-- Result view -->
+          <template if:true={result}>
+            <div class="slds-box slds-theme_success-texture slds-var-m-bottom_small">
+              <p class="slds-text-heading_small">Sent! Signing links created:</p>
+              <ul class="slds-list_dotted slds-var-m-top_x-small">
+                <template for:each={sentLinks} for:item="link">
+                  <li key={link.signerId}>
+                    <strong>{link.name}</strong> &lt;{link.email}&gt;<br />
+                    <a href={link.url} target="_blank">{link.url}</a>
+                  </li>
+                </template>
+              </ul>
+            </div>
+          </template>
+
+          <!-- Compose view -->
+          <template if:false={result}>
+            <lightning-combobox
+              label="Document"
+              value={selectedFileId}
+              options={fileOptions}
+              onchange={handleFileChange}
+              field-level-help="Defaults to the most recently modified file on this record."
+            ></lightning-combobox>
+            <template if:true={selectedNotPdf}>
+              <p class="slds-text-color_error slds-text-body_small slds-var-m-top_xx-small">
+                The selected file is not a PDF. Only PDFs can be sent for signature.
+              </p>
+            </template>
+
+            <div class="slds-var-m-top_medium">
+              <span class="slds-text-title_caps">Signers</span>
+            </div>
+
+            <template for:each={signerRows} for:item="row">
+              <div key={row.index} class="signer-card slds-box slds-var-p-around_small slds-var-m-top_x-small">
+                <div class="slds-grid slds-gutters slds-wrap">
+                  <div class="slds-col slds-size_1-of-2">
+                    <lightning-input
+                      label="Name"
+                      value={row.name}
+                      data-index={row.index}
+                      data-field="name"
+                      oncommit={handleSignerInput}
+                      onchange={handleSignerInput}
+                    ></lightning-input>
+                  </div>
+                  <div class="slds-col slds-size_1-of-2">
+                    <lightning-input
+                      type="email"
+                      label="Email"
+                      value={row.email}
+                      data-index={row.index}
+                      data-field="email"
+                      onchange={handleSignerInput}
+                    ></lightning-input>
+                  </div>
+                  <div class="slds-col slds-size_1-of-1">
+                    <lightning-input
+                      label="Signing on behalf of (optional)"
+                      placeholder="e.g. Acme LLC — Buyer"
+                      value={row.entityLabel}
+                      data-index={row.index}
+                      data-field="entityLabel"
+                      onchange={handleSignerInput}
+                    ></lightning-input>
+                  </div>
+                </div>
+
+                <div class="slds-var-m-top_x-small">
+                  <span class="slds-text-body_small slds-text-color_weak">Fields for this signer:</span>
+                  <div class="slds-grid slds-gutters_small slds-var-m-top_xx-small">
+                    <template for:each={row.fieldChecks} for:item="fc">
+                      <span key={fc.key} class="slds-col">
+                        <lightning-input
+                          type="checkbox"
+                          label={fc.label}
+                          checked={fc.checked}
+                          data-index={row.index}
+                          data-type={fc.type}
+                          onchange={handleFieldToggle}
+                        ></lightning-input>
+                      </span>
+                    </template>
+                  </div>
+                </div>
+
+                <template if:true={row.removable}>
+                  <div class="slds-var-m-top_x-small slds-text-align_right">
+                    <lightning-button-icon
+                      icon-name="utility:delete"
+                      alternative-text="Remove signer"
+                      data-index={row.index}
+                      onclick={removeSigner}
+                      variant="border-filled"
+                    ></lightning-button-icon>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <div class="slds-var-m-top_x-small">
+              <lightning-button
+                label="Add signer"
+                icon-name="utility:add"
+                onclick={addSigner}
+                variant="neutral"
+              ></lightning-button>
+            </div>
+
+            <template if:true={error}>
+              <div class="slds-text-color_error slds-var-m-top_small">{error}</div>
+            </template>
+
+            <div class="slds-var-m-top_medium slds-text-align_right">
+              <lightning-button
+                label="Send for Signature"
+                variant="brand"
+                onclick={handleSend}
+                disabled={sendDisabled}
+              ></lightning-button>
+              <template if:true={sending}>
+                <lightning-spinner alternative-text="Sending" size="small"></lightning-spinner>
+              </template>
+            </div>
+          </template>
+        </template>
+      </template>
+    </div>
+  </lightning-card>
+</template>

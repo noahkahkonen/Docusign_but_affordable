@@ -8,6 +8,7 @@ import { recordAudit } from "./audit.js";
 import { issueToken, hashToken, expiryFromNow } from "./tokens.js";
 import { consentDisclosure } from "./consent.js";
 import { flattenFields, getPageLayouts, type FieldPlacement } from "./pdf.js";
+import { autoPlaceFields, type AutoFieldRequest } from "./layout.js";
 import { generateCertificate, attemptWriteback } from "./writeback.js";
 
 /**
@@ -20,6 +21,8 @@ export interface CreateSignerInput {
   name: string;
   email: string;
   entityLabel?: string;
+  /** Field types to auto-place for this signer (used by the Salesforce LWC instead of x/y boxes). */
+  autoFields?: FieldType[];
 }
 
 export interface CreateFieldInput {
@@ -40,7 +43,8 @@ export interface CreateRequestInput {
   contentVersionId: string; // the source PDF in Salesforce
   documentName: string;
   signers: CreateSignerInput[];
-  fields: CreateFieldInput[];
+  /** Explicit field placements. Optional when signers use autoFields. */
+  fields?: CreateFieldInput[];
 }
 
 /** Create a DRAFT request: pull the source PDF from Salesforce, hash it, persist signers+fields. */
@@ -50,10 +54,33 @@ export async function createSignatureRequest(input: CreateRequestInput) {
   // Pull the source document now so the request is self-contained and the original hash is fixed.
   const originalPdf = await downloadFileBytes(input.contentVersionId);
   const docHashOriginal = sha256(originalPdf);
+  const layouts = await getPageLayouts(originalPdf);
+
+  // Expand any per-signer auto-field requests into concrete placements, then combine with any
+  // explicit fields the caller supplied.
+  const autoRequests: AutoFieldRequest[] = [];
+  input.signers.forEach((s, signerIndex) => {
+    for (const type of s.autoFields ?? []) autoRequests.push({ signerIndex, type });
+  });
+  const autoPlaced = autoPlaceFields(layouts, autoRequests).map((p) => ({
+    signerIndex: p.signerIndex,
+    type: p.type,
+    label: p.label,
+    required: p.required,
+    pageIndex: p.pageIndex,
+    x: p.x,
+    y: p.y,
+    width: p.width,
+    height: p.height,
+  }));
+  const fields: CreateFieldInput[] = [...(input.fields ?? []), ...autoPlaced];
+
+  if (fields.length === 0) {
+    throw new Error("At least one field is required (explicit placements or signer autoFields)");
+  }
 
   // Validate every field's placement against the real page geometry before we store anything.
-  const layouts = await getPageLayouts(originalPdf);
-  for (const f of input.fields) {
+  for (const f of fields) {
     const page = layouts[f.pageIndex];
     if (!page) {
       throw new Error(`Field references page ${f.pageIndex} but the document has ${layouts.length} pages`);
@@ -90,9 +117,9 @@ export async function createSignatureRequest(input: CreateRequestInput) {
       signerIds.push(signer.id);
     }
 
-    if (input.fields.length > 0) {
+    if (fields.length > 0) {
       await tx.field.createMany({
-        data: input.fields.map((f) => ({
+        data: fields.map((f) => ({
           requestId: request.id,
           signerId: signerIds[f.signerIndex],
           type: f.type,
@@ -110,7 +137,7 @@ export async function createSignatureRequest(input: CreateRequestInput) {
     await recordAudit(tx, {
       requestId: request.id,
       eventType: "REQUEST_CREATED",
-      metadata: { signers: input.signers.length, fields: input.fields.length },
+      metadata: { signers: input.signers.length, fields: fields.length },
     });
 
     return { requestId: request.id, signerIds, docHashOriginal };

@@ -195,10 +195,15 @@ The `release` phase runs `prisma migrate deploy`. (`app.json` supports one-click
 ## Salesforce setup (summary)
 
 1. **Connected App** with a certificate and the `api` + `refresh_token` scopes; pre-authorize the
-   integration user. Use its consumer key as `SF_CLIENT_ID`.
-2. Deploy the SFDX project in `salesforce/` (adds `Signature_Request__c`).
-3. (M4) Create a **Named Credential** pointing at `APP_BASE_URL`, and add the "Send for Signature"
-   LWC Quick Action to the record page.
+   integration user. Use its consumer key as `SF_CLIENT_ID`. *(Backend → Salesforce, JWT bearer.)*
+2. Deploy the SFDX project in `salesforce/` — `Signature_Request__c`, the `InkPathController` Apex,
+   the **Send for Signature** LWC, the `InkPath_Backend` Named/External Credential, and the
+   `InkPath_User` permission set.
+3. In Setup, point the **Named Credential** at your backend URL and add the `x-api-key` custom
+   header (= `BACKEND_API_KEY`) on the External Credential principal, assign the permission set, and
+   surface the LWC (Quick Action or record page). *(Salesforce → backend.)*
+
+Full step-by-step: [`salesforce/README.md`](salesforce/README.md).
 
 Verified against the target org (API **v60.0**): standard Files objects
 (`ContentDocumentLink` / `ContentVersion`) and the CRE deal object `TTL_Core__Deal__c`.
@@ -215,7 +220,10 @@ Verified against the target org (API **v60.0**): standard Files objects
 - [x] **M3 — Audit & write-back:** Certificate of Completion (paginating), SHA-256 tamper-evidence
   on original + signed, signed-PDF-with-certificate + standalone certificate uploaded to the source
   record, `Signature_Request__c` upserted. Best-effort idempotent write-back with retry endpoint.
-- [ ] **M4 — Salesforce UX:** "Send for Signature" LWC Quick Action, status display, Named
-  Credential wiring.
+- [x] **M4 — Salesforce UX:** "Send for Signature" LWC (file picker defaulting to latest, signer
+  pre-fill from contacts, per-signer field selection with backend auto-placement), `InkPathController`
+  Apex calling the backend over a **Named Credential** (no secrets in Apex), `InkPath_User` permission
+  set, example Opportunity Quick Action. See `salesforce/README.md` for deploy + setup. *(Authored as
+  SFDX source; deploy/validate in your sandbox.)*
 - [ ] **M5 — Hardening:** multi-signer-per-entity polish, optional OTP auth, retries, tests,
   deployment guide.

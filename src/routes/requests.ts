@@ -29,6 +29,8 @@ const fieldSchema = z.object({
   height: z.number().positive(),
 });
 
+const fieldType = z.enum(["SIGNATURE", "INITIALS", "DATE", "TEXT"]);
+
 const createSchema = z.object({
   salesforceRecordId: z.string().min(15).max(18),
   salesforceObjectType: z.string().min(1).max(80),
@@ -40,6 +42,8 @@ const createSchema = z.object({
         name: z.string().min(1).max(255),
         email: z.string().email(),
         entityLabel: z.string().max(255).optional(),
+        // Field types to auto-place for this signer (the LWC sends these instead of x/y boxes).
+        autoFields: z.array(fieldType).optional(),
       }),
     )
     .min(1),

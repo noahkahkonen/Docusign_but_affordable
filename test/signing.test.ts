@@ -13,6 +13,7 @@ import {
 } from "../src/signing/tokens.js";
 import { consentDisclosure, CONSENT_VERSION } from "../src/signing/consent.js";
 import { buildCertificate } from "../src/signing/certificate.js";
+import { autoPlaceFields } from "../src/signing/layout.js";
 
 // 1x1 transparent PNG.
 const ONE_PX_PNG =
@@ -75,6 +76,39 @@ describe("token service", () => {
     const exp = expiryFromNow(1);
     expect(exp.getTime()).toBeGreaterThan(before);
     expect(exp.getTime()).toBeLessThanOrEqual(before + 60 * 60 * 1000 + 5);
+  });
+});
+
+describe("auto field placement", () => {
+  const layouts = [
+    { pageIndex: 0, width: 612, height: 792 },
+    { pageIndex: 1, width: 612, height: 792 },
+  ];
+
+  it("places requested fields on the last page within bounds, per signer band", () => {
+    const placed = autoPlaceFields(layouts, [
+      { signerIndex: 0, type: "SIGNATURE" },
+      { signerIndex: 0, type: "DATE" },
+      { signerIndex: 1, type: "TEXT" },
+    ]);
+    expect(placed).toHaveLength(3);
+    // All on the last page.
+    expect(placed.every((p) => p.pageIndex === 1)).toBe(true);
+    // Within page bounds.
+    for (const p of placed) {
+      expect(p.x).toBeGreaterThanOrEqual(0);
+      expect(p.x + p.width).toBeLessThanOrEqual(612);
+      expect(p.y + p.height).toBeLessThanOrEqual(792);
+    }
+    // Different signers land in different vertical bands.
+    const sig0 = placed.find((p) => p.signerIndex === 0 && p.type === "SIGNATURE")!;
+    const text1 = placed.find((p) => p.signerIndex === 1 && p.type === "TEXT")!;
+    expect(text1.y).toBeGreaterThan(sig0.y);
+  });
+
+  it("returns nothing when there are no pages or requests", () => {
+    expect(autoPlaceFields([], [{ signerIndex: 0, type: "SIGNATURE" }])).toHaveLength(0);
+    expect(autoPlaceFields(layouts, [])).toHaveLength(0);
   });
 });
 
