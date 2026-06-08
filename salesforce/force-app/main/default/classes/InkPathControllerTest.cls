@@ -15,6 +15,17 @@ private class InkPathControllerTest {
         }
     }
 
+    // Always returns a non-2xx error so we can assert the controller surfaces backend failures.
+    // (Apex has no anonymous inner classes, so this must be a named class.)
+    private class ErrorMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            HttpResponse r = new HttpResponse();
+            r.setStatusCode(503);
+            r.setBody('{"error":"salesforce_not_configured"}');
+            return r;
+        }
+    }
+
     private static Id makeFileOn(Id linkedId) {
         ContentVersion cv = new ContentVersion(
             Title = 'Purchase Agreement',
@@ -140,14 +151,7 @@ private class InkPathControllerTest {
         Account a = new Account(Name = 'Acme LLC');
         insert a;
 
-        Test.setMock(HttpCalloutMock.class, new HttpCalloutMock() {
-            public HttpResponse respond(HttpRequest req) {
-                HttpResponse r = new HttpResponse();
-                r.setStatusCode(503);
-                r.setBody('{"error":"salesforce_not_configured"}');
-                return r;
-            }
-        });
+        Test.setMock(HttpCalloutMock.class, new ErrorMock());
 
         Boolean threw = false;
         Test.startTest();

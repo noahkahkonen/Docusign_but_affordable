@@ -14,8 +14,13 @@ export interface UploadedFile {
 }
 
 /**
- * Upload bytes as a new File linked to `recordId`. Setting FirstPublishedLocationId on the
- * ContentVersion makes Salesforce create the ContentDocumentLink to the record automatically.
+ * Upload bytes as a new File linked to `recordId`, in two steps:
+ *   1. create the ContentVersion (the file itself), then
+ *   2. create a ContentDocumentLink joining it to the record.
+ *
+ * We deliberately avoid the FirstPublishedLocationId auto-link shortcut: that field isn't
+ * resolvable in every org's API context (some orgs reject it with INVALID_FIELD), whereas the
+ * explicit ContentDocumentLink works universally — it's also the pattern the Apex tests use.
  */
 export async function uploadFileToRecord(
   recordId: string,
@@ -25,11 +30,11 @@ export async function uploadFileToRecord(
 ): Promise<UploadedFile> {
   const conn = await salesforce.connection();
 
+  // Step 1 — create the file.
   const res = await conn.sobject("ContentVersion").create({
     Title: title,
     PathOnClient: fileName,
     VersionData: bytes.toString("base64"),
-    FirstPublishedLocationId: recordId,
   });
 
   if (!res.success) {
@@ -40,6 +45,18 @@ export async function uploadFileToRecord(
   const cv = (await conn
     .sobject("ContentVersion")
     .retrieve(res.id)) as unknown as { ContentDocumentId: string };
+
+  // Step 2 — link the file to the record so it appears on the record's Files related list.
+  const link = await conn.sobject("ContentDocumentLink").create({
+    ContentDocumentId: cv.ContentDocumentId,
+    LinkedEntityId: recordId,
+    ShareType: "V",
+    Visibility: "AllUsers",
+  });
+
+  if (!link.success) {
+    throw new Error(`Failed to link file to record: ${JSON.stringify(link.errors)}`);
+  }
 
   logger.info({ recordId, contentVersionId: res.id }, "Uploaded file to Salesforce record");
   return { contentVersionId: res.id, contentDocumentId: cv.ContentDocumentId };

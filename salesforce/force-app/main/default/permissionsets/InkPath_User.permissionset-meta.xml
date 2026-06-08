@@ -37,11 +37,8 @@
         <readable>true</readable>
         <editable>false</editable>
     </fieldPermissions>
-    <fieldPermissions>
-        <field>Signature_Request__c.Status__c</field>
-        <readable>true</readable>
-        <editable>true</editable>
-    </fieldPermissions>
+    <!-- Status__c is a universally-required field, so FLS can't be declared for it here
+         (it's implicitly readable/editable wherever the object is accessible). -->
     <fieldPermissions>
         <field>Signature_Request__c.Document_Name__c</field>
         <readable>true</readable>
