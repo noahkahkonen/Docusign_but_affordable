@@ -291,7 +291,7 @@ export async function resendSignatureRequest(requestId: string): Promise<Signing
 /* ---------- Sender "prepare" (field placement) ---------- */
 
 /** Resolve a prepare token to its DRAFT request, enforcing existence, DRAFT status, and expiry. */
-async function resolvePrepareToken(token: string) {
+export async function resolvePrepareToken(token: string) {
   const tokenHash = hashToken(token);
   const request = await prisma.signatureRequest.findFirst({
     where: { prepareTokenHash: tokenHash },

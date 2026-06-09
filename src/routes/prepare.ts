@@ -9,6 +9,11 @@ import {
   replaceDraftFields,
   sendDraftByPrepareToken,
 } from "../signing/requests.js";
+import {
+  saveTemplateFromDraft,
+  listTemplates,
+  applyTemplateToDraft,
+} from "../signing/templates.js";
 
 /**
  * Sender field-placement ("prepare") surface. Authenticated solely by the high-entropy prepare
@@ -35,6 +40,25 @@ const fieldsSchema = z.object({
       }),
     )
     .default([]),
+});
+
+const roleFieldsSchema = z.object({
+  name: z.string().min(1).max(120),
+  fields: z
+    .array(
+      z.object({
+        role: z.enum(["BUYER", "SELLER", "TENANT", "LANDLORD", "OTHER"]),
+        type: fieldType,
+        label: z.string().max(255).optional(),
+        required: z.boolean().optional(),
+        pageIndex: z.number().int().nonnegative(),
+        x: z.number(),
+        y: z.number(),
+        width: z.number().positive(),
+        height: z.number().positive(),
+      }),
+    )
+    .min(1),
 });
 
 const PAGE_PATH = join(process.cwd(), "public", "prepare.html");
@@ -85,5 +109,23 @@ export async function prepareRoutes(app: FastifyInstance): Promise<void> {
     const { token } = tokenParams.parse(req.params);
     const links = await sendDraftByPrepareToken(token);
     return { sent: links.length };
+  });
+
+  // Templates: list all, save the current layout as a new template, or apply one to this draft.
+  app.get("/api/prepare/:token/templates", async (req) => {
+    tokenParams.parse(req.params); // validate the token shape (listing is global)
+    return { templates: await listTemplates() };
+  });
+
+  app.post("/api/prepare/:token/templates", async (req) => {
+    const { token } = tokenParams.parse(req.params);
+    const { name, fields } = roleFieldsSchema.parse(req.body);
+    return saveTemplateFromDraft(token, name, fields);
+  });
+
+  app.post("/api/prepare/:token/apply-template", async (req) => {
+    const { token } = tokenParams.parse(req.params);
+    const { templateId } = z.object({ templateId: z.string().uuid() }).parse(req.body);
+    return applyTemplateToDraft(token, templateId);
   });
 }

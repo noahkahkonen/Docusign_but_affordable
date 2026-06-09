@@ -75,6 +75,23 @@
       .count { color: var(--muted); font-size: 14px; }
       .actionbar .spacer { margin-left: auto; }
 
+      .tpl-btn { width: 100%; margin-bottom: 8px; }
+      .tpl-btn:last-of-type { margin-bottom: 0; }
+      .overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.45); display: flex;
+        align-items: center; justify-content: center; padding: 16px; z-index: 50; }
+      .overlay.hidden { display: none; }
+      .tpl-modal { background: #fff; border-radius: 14px; width: 100%; max-width: 460px;
+        max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
+      .tpl-head { padding: 16px 18px; font-weight: 700; border-bottom: 1px solid var(--line);
+        display: flex; align-items: center; }
+      .tpl-head .x { margin-left: auto; cursor: pointer; color: var(--muted); font-weight: 400; }
+      .tpl-list { padding: 8px; overflow: auto; }
+      .tpl-row { padding: 12px 14px; border-radius: 9px; cursor: pointer; border: 1px solid transparent; }
+      .tpl-row:hover { background: var(--bg); border-color: var(--line); }
+      .tpl-row .nm { font-weight: 600; }
+      .tpl-row .meta { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+      .tpl-empty { padding: 22px; text-align: center; color: var(--muted); }
+
       .state { text-align: center; padding: 60px 22px; }
       .state .check { width: 54px; height: 54px; border-radius: 50%;
         background: color-mix(in srgb, var(--brand) 12%, white); color: var(--brand); display: inline-flex;
@@ -93,6 +110,13 @@
 
     <div id="root">
       <div class="state" id="loading">Loading document…</div>
+    </div>
+
+    <div class="overlay hidden" id="tplOverlay">
+      <div class="tpl-modal">
+        <div class="tpl-head">Load a template<span class="x" id="tplClose">✕</span></div>
+        <div class="tpl-list" id="tplList"></div>
+      </div>
     </div>
 
     <div class="actionbar hidden" id="actionbar" style="display:none">
@@ -166,6 +190,10 @@
                 '<p class="hint" style="margin:10px 0 0">Fields you place apply to the selected signer.</p></div>' +
               '<div class="panel"><h3>Add field</h3><div class="palette" id="palette"></div>' +
                 '<p class="hint" style="margin:10px 0 0">Pick a field, then click on the document to place it. Drag to move, corner to resize.</p></div>' +
+              '<div class="panel"><h3>Templates</h3>' +
+                '<button class="btn btn-ghost tpl-btn" id="loadTplBtn">Load template…</button>' +
+                '<button class="btn btn-ghost tpl-btn" id="saveTplBtn">Save as template…</button>' +
+                '<p class="hint" id="tplHint" style="margin:8px 0 0"></p></div>' +
               '<div class="panel"><h3>Signers</h3><div class="legend" id="legend"></div></div>' +
             '</aside>' +
             '<div class="docarea"><div class="pages" id="pages"></div></div>' +
@@ -194,6 +222,9 @@
           row.innerHTML = `<span class="sw" style="background:${signerColor(s.index)}"></span>${signerLabel(s)}`;
           legend.appendChild(row);
         });
+
+        $("loadTplBtn").addEventListener("click", openTemplates);
+        $("saveTplBtn").addEventListener("click", saveTemplate);
 
         $("actionbar").style.display = "block";
         $("actionbar").classList.remove("hidden");
@@ -376,6 +407,82 @@
           $("sendBtn").disabled = false;
         }
       }
+
+      /* ---------- Templates ---------- */
+      function clearAllFields() {
+        document.querySelectorAll(".fld").forEach((e) => e.remove());
+        state.fields = [];
+      }
+
+      async function saveTemplate() {
+        if (state.fields.length === 0) return alert("Place at least one field before saving a template.");
+        const name = prompt("Name this template (e.g. “Agency Disclosure”):", state.ctx.request.documentName || "");
+        if (!name) return;
+        const fields = state.fields.map((f) => ({
+          role: (state.ctx.signers[f.signerIndex] || {}).role || "OTHER",
+          type: f.type, label: f.label, required: f.required,
+          pageIndex: f.pageIndex, x: f.x, y: f.y, width: f.width, height: f.height,
+        }));
+        try {
+          const r = await fetch(api("/templates"), {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name, fields }),
+          });
+          const out = await r.json();
+          if (!r.ok) throw new Error(out.message || "Could not save template.");
+          $("tplHint").textContent = `Saved “${name}” (${out.fieldCount} fields).`;
+        } catch (e) { alert(e.message); }
+      }
+
+      async function openTemplates() {
+        const list = $("tplList");
+        list.innerHTML = '<div class="tpl-empty">Loading…</div>';
+        $("tplOverlay").classList.remove("hidden");
+        try {
+          const { templates } = await fetch(api("/templates")).then((r) => r.json());
+          if (!templates || templates.length === 0) {
+            list.innerHTML = '<div class="tpl-empty">No templates yet. Place fields and use “Save as template”.</div>';
+            return;
+          }
+          list.innerHTML = "";
+          templates.forEach((t) => {
+            const row = document.createElement("div");
+            row.className = "tpl-row";
+            const roles = (t.roles || []).map((r) => roleName(r)).join(", ");
+            row.innerHTML = `<div class="nm">${t.name}</div>` +
+              `<div class="meta">${t.fieldCount} field${t.fieldCount === 1 ? "" : "s"}` +
+              `${roles ? " · " + roles : ""}${t.documentType ? " · " + t.documentType : ""}</div>`;
+            row.addEventListener("click", () => applyTemplate(t.id));
+            list.appendChild(row);
+          });
+        } catch (e) {
+          list.innerHTML = `<div class="tpl-empty">${e.message || "Could not load templates."}</div>`;
+        }
+      }
+
+      async function applyTemplate(templateId) {
+        try {
+          const r = await fetch(api("/apply-template"), {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ templateId }),
+          });
+          const out = await r.json();
+          if (!r.ok) throw new Error(out.message || "Could not apply template.");
+          clearAllFields();
+          for (const f of out.fields) addField({ ...f, id: state.nextId++ }, false);
+          refresh();
+          $("tplOverlay").classList.add("hidden");
+          let msg = `Applied ${out.applied} field${out.applied === 1 ? "" : "s"}.`;
+          if (out.skippedRoles && out.skippedRoles.length)
+            msg += ` Skipped ${out.skippedRoles.map(roleName).join(", ")} (no matching signer).`;
+          if (out.skippedOffPage) msg += ` ${out.skippedOffPage} off-page field(s) skipped.`;
+          $("tplHint").textContent = msg;
+        } catch (e) { alert(e.message); }
+      }
+      $("tplClose").addEventListener("click", () => $("tplOverlay").classList.add("hidden"));
+      $("tplOverlay").addEventListener("click", (e) => {
+        if (e.target === $("tplOverlay")) $("tplOverlay").classList.add("hidden");
+      });
 
       boot();
     </script>

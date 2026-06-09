@@ -199,3 +199,41 @@ model AuditEvent {
   @@index([signerId])
   @@map("audit_events")
 }
+
+// A reusable field layout for a recurring document. Fields are keyed by ROLE (not a named
+// signer), so a saved template re-applies to whoever plays that role on the next deal. autoSend
+// is reserved for Phase 4 (trusted templates that send without a review step).
+model Template {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  documentType String?  @map("document_type") // grouping/match label, e.g. "Agency Disclosure"
+  autoSend     Boolean  @default(false) @map("auto_send")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  fields TemplateField[]
+
+  @@index([documentType])
+  @@map("templates")
+}
+
+model TemplateField {
+  id         String   @id @default(uuid()) @db.Uuid
+  templateId String   @map("template_id") @db.Uuid
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  role     SignerRole
+  type     FieldType
+  label    String?
+  required Boolean  @default(true)
+
+  pageIndex Int   @map("page_index")
+  x         Float
+  y         Float
+  width     Float
+  height    Float
+
+  @@index([templateId])
+  @@map("template_fields")
+}
