@@ -81,6 +81,7 @@ model SignatureRequest {
   // Salesforce linkage
   salesforceRecordId       String  @map("salesforce_record_id")        // e.g. an Opportunity / TTL_Core__Deal__c Id
   salesforceObjectType     String  @map("salesforce_object_type")       // e.g. "Opportunity", "TTL_Core__Deal__c"
+  salesforceRecordType     String? @map("salesforce_record_type")       // Deal RecordType DeveloperName used for routing (e.g. "Seller_Rep")
   originalContentVersionId String  @map("original_content_version_id")  // ContentVersion.Id of the source PDF
   salesforceRequestRecordId String? @map("salesforce_request_record_id") // Signature_Request__c.Id once mirrored
 

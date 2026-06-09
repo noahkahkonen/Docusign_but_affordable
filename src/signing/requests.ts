@@ -11,6 +11,8 @@ import { flattenFields, getPageLayouts, type FieldPlacement } from "./pdf.js";
 import { autoPlaceFields, type AutoFieldRequest } from "./layout.js";
 import { generateCertificate, attemptWriteback } from "./writeback.js";
 import { sendSigningInvitations } from "./notifications.js";
+import { getDealParties } from "../salesforce/deal.js";
+import { computeRouting } from "./routing.js";
 
 /**
  * Signature request lifecycle: create (draft) -> send (mint tokens) -> per-signer open/consent/
@@ -43,6 +45,7 @@ export interface CreateFieldInput {
 export interface CreateRequestInput {
   salesforceRecordId: string;
   salesforceObjectType: string;
+  salesforceRecordType?: string; // Deal RecordType DeveloperName (routing/audit)
   contentVersionId: string; // the source PDF in Salesforce
   documentName: string;
   signers: CreateSignerInput[];
@@ -114,6 +117,7 @@ export async function createSignatureRequest(input: CreateRequestInput) {
       data: {
         salesforceRecordId: input.salesforceRecordId,
         salesforceObjectType: input.salesforceObjectType,
+        salesforceRecordType: input.salesforceRecordType ?? null,
         originalContentVersionId: input.contentVersionId,
         documentName: input.documentName,
         status: "DRAFT",
@@ -164,6 +168,48 @@ export async function createSignatureRequest(input: CreateRequestInput) {
 
     return { requestId: request.id, signerIds, docHashOriginal, prepareToken };
   });
+}
+
+export interface FromDealInput {
+  salesforceRecordId: string;
+  salesforceObjectType: string;
+  contentVersionId: string;
+  documentName: string;
+}
+
+/**
+ * Create a DRAFT by routing: read the Deal's record type + party Contacts, apply the routing matrix
+ * to decide who signs (resolving each role to a real person), and open it for field placement. The
+ * caller (Salesforce/docgen) supplies only the deal + document; signers are derived.
+ */
+export async function createRequestFromDeal(input: FromDealInput) {
+  const deal = await getDealParties(input.salesforceRecordId);
+  const routing = computeRouting(deal);
+
+  if (routing.signers.length === 0) {
+    const reason = !routing.ruleApplied
+      ? `no routing rule for record type "${deal.recordType ?? "unknown"}"`
+      : `no party contacts found to sign${routing.missingRequired.length ? ` (missing: ${routing.missingRequired.join(", ")})` : ""}`;
+    throw httpError(422, `Could not determine signers from the deal — ${reason}.`);
+  }
+
+  const created = await createSignatureRequest({
+    salesforceRecordId: input.salesforceRecordId,
+    salesforceObjectType: input.salesforceObjectType,
+    salesforceRecordType: deal.recordType ?? undefined,
+    contentVersionId: input.contentVersionId,
+    documentName: input.documentName,
+    signers: routing.signers.map((s) => ({ name: s.name, email: s.email, role: s.role })),
+    prepare: true,
+  });
+
+  return {
+    requestId: created.requestId,
+    prepareToken: created.prepareToken,
+    recordType: deal.recordType,
+    signers: routing.signers.map((s) => ({ role: s.role, name: s.name, email: s.email })),
+    missingRequired: routing.missingRequired,
+  };
 }
 
 export interface SigningLink {

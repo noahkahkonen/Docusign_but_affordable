@@ -4,6 +4,7 @@ import { env } from "../config/env.js";
 import { registerApiKeyGuard } from "../lib/api-key-guard.js";
 import {
   createSignatureRequest,
+  createRequestFromDeal,
   sendSignatureRequest,
   resendSignatureRequest,
   getRequestStatus,
@@ -56,6 +57,13 @@ const createSchema = z.object({
   prepare: z.boolean().optional(),
 });
 
+const fromDealSchema = z.object({
+  salesforceRecordId: z.string().min(15).max(18),
+  salesforceObjectType: z.string().min(1).max(80),
+  contentVersionId: z.string().min(15).max(18),
+  documentName: z.string().min(1).max(255),
+});
+
 export async function requestRoutes(app: FastifyInstance): Promise<void> {
   registerApiKeyGuard(app);
 
@@ -64,6 +72,15 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
     const body = createSchema.parse(req.body);
     const result = await createSignatureRequest(body);
     // The sender opens this to place fields in the browser (then send from there).
+    const prepareUrl = `${env.APP_BASE_URL}/prepare/${result.prepareToken}`;
+    return reply.code(201).send({ ...result, prepareUrl });
+  });
+
+  // Create a draft by ROUTING: derive the signers from the Deal's record type + party contacts.
+  // The caller supplies only the deal + document; who-signs is computed from the routing matrix.
+  app.post("/api/requests/from-deal", async (req, reply) => {
+    const body = fromDealSchema.parse(req.body);
+    const result = await createRequestFromDeal(body);
     const prepareUrl = `${env.APP_BASE_URL}/prepare/${result.prepareToken}`;
     return reply.code(201).send({ ...result, prepareUrl });
   });
