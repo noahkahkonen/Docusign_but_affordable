@@ -44,7 +44,7 @@ describe.runIf(run)("prepare / field placement (integration)", () => {
       salesforceObjectType: "TTL_Core__Deal__c",
       contentVersionId: "068Pe0000196OGTIA2",
       documentName: "Offer.pdf",
-      signers: [{ name: "Dana Lee", email: "dana@example.com", entityLabel: "Galaxy LLC — Buyer" }],
+      signers: [{ name: "Dana Lee", email: "dana@example.com", entityLabel: "Galaxy LLC — Buyer", role: "BUYER" }],
       prepare: true, // no fields up front
     });
     requestId = created.requestId;
@@ -56,7 +56,7 @@ describe.runIf(run)("prepare / field placement (integration)", () => {
     const ctx = await mod.getPrepareContext(prepareToken);
     expect(ctx.request.status).toBe("DRAFT");
     expect(ctx.signers).toHaveLength(1);
-    expect(ctx.signers[0]).toMatchObject({ index: 0, name: "Dana Lee" });
+    expect(ctx.signers[0]).toMatchObject({ index: 0, name: "Dana Lee", role: "BUYER" });
     expect(ctx.pages[0]).toMatchObject({ pageIndex: 0 });
     expect(ctx.fields).toHaveLength(0);
   });

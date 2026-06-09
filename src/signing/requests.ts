@@ -1,4 +1,4 @@
-import type { FieldType, Prisma } from "@prisma/client";
+import type { FieldType, Prisma, SignerRole } from "@prisma/client";
 import { prisma } from "../db/prisma.js";
 import { env } from "../config/env.js";
 import { logger } from "../lib/logger.js";
@@ -22,6 +22,8 @@ export interface CreateSignerInput {
   name: string;
   email: string;
   entityLabel?: string;
+  /** CRE party this signer represents (BUYER/SELLER/TENANT/LANDLORD); omit for ad-hoc signers. */
+  role?: SignerRole;
   /** Field types to auto-place for this signer (used by the Salesforce LWC instead of x/y boxes). */
   autoFields?: FieldType[];
 }
@@ -131,6 +133,7 @@ export async function createSignatureRequest(input: CreateRequestInput) {
           name: s.name,
           email: s.email,
           entityLabel: s.entityLabel ?? null,
+          role: s.role ?? null,
         },
       });
       signerIds.push(signer.id);
@@ -323,6 +326,7 @@ export async function getPrepareContext(token: string) {
       id: s.id,
       name: s.name,
       entityLabel: s.entityLabel,
+      role: s.role,
     })),
     pages: layouts,
     fields: fields.map((f) => ({
@@ -760,6 +764,7 @@ export async function getRequestStatus(requestId: string) {
       name: s.name,
       email: s.email,
       entityLabel: s.entityLabel,
+      role: s.role,
       status: s.status,
       consentedAt: s.consentedAt,
       signedAt: s.signedAt,

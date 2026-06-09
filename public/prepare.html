@@ -128,6 +128,12 @@
       };
 
       function signerColor(i) { return SIGNER_COLORS[i % SIGNER_COLORS.length]; }
+      function roleName(role) { return role ? role.charAt(0) + role.slice(1).toLowerCase() : "Signer"; }
+      function signerLabel(s) {
+        if (s.role) return `${roleName(s.role)} — ${s.name}`;
+        return s.entityLabel ? `${s.name} — ${s.entityLabel}` : s.name;
+      }
+      function signerShort(s) { return s.role ? roleName(s.role) : ((s.name || "").split(" ")[0] || "Signer"); }
       function showState(msg, glyph, isErr) {
         $("actionbar").style.display = "none";
         $("root").innerHTML = `<div class="state"><div class="check">${glyph || "✓"}</div>` +
@@ -168,7 +174,7 @@
         signers.forEach((s) => {
           const o = document.createElement("option");
           o.value = String(s.index);
-          o.textContent = s.entityLabel ? `${s.name} — ${s.entityLabel}` : s.name;
+          o.textContent = signerLabel(s);
           sel.appendChild(o);
         });
         sel.addEventListener("change", () => { state.activeSigner = Number(sel.value); });
@@ -185,7 +191,7 @@
         const legend = $("legend");
         signers.forEach((s) => {
           const row = document.createElement("div"); row.className = "row";
-          row.innerHTML = `<span class="sw" style="background:${signerColor(s.index)}"></span>${s.name}`;
+          row.innerHTML = `<span class="sw" style="background:${signerColor(s.index)}"></span>${signerLabel(s)}`;
           legend.appendChild(row);
         });
 
@@ -274,8 +280,8 @@
           el.style.width = f.width * scale + "px"; el.style.height = f.height * scale + "px";
         };
         place();
-        const signerName = (state.ctx.signers[f.signerIndex] || {}).name || "";
-        el.innerHTML = `<span class="lbl">${DEFAULTS[f.type].label} · ${signerName.split(" ")[0] || ""}</span>` +
+        const signer = state.ctx.signers[f.signerIndex] || {};
+        el.innerHTML = `<span class="lbl">${DEFAULTS[f.type].label} · ${signerShort(signer)}</span>` +
           `<span class="grip"></span><span class="del" title="Remove">✕</span>`;
 
         el.querySelector(".del").addEventListener("pointerdown", (e) => {

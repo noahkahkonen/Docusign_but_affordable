@@ -48,6 +48,17 @@ enum FieldType {
   TEXT
 }
 
+// The party a signer plays on a deal. Templates + routing rules are defined against roles (not
+// named people); a role resolves to a real Contact at send time via the Deal's party fields.
+// OTHER covers ad-hoc signers on custom documents that don't map to a CRE party.
+enum SignerRole {
+  BUYER
+  SELLER
+  TENANT
+  LANDLORD
+  OTHER
+}
+
 enum AuditEventType {
   REQUEST_CREATED
   REQUEST_SENT
@@ -113,6 +124,7 @@ model Signer {
   name        String
   email       String
   entityLabel String? @map("entity_label") // groups multiple signers under one party, e.g. "Acme LLC — Buyer"
+  role        SignerRole? // BUYER/SELLER/TENANT/LANDLORD on CRE deals; null/OTHER for ad-hoc signers
 
   routingOrder Int?       @map("routing_order") // null => parallel (default). Reserved for future sequential mode.
   authMethod   AuthMethod @default(EMAIL_LINK) @map("auth_method")

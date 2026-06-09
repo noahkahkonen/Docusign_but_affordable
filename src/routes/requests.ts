@@ -43,6 +43,8 @@ const createSchema = z.object({
         name: z.string().min(1).max(255),
         email: z.string().email(),
         entityLabel: z.string().max(255).optional(),
+        // CRE party this signer represents; omit for ad-hoc signers on custom documents.
+        role: z.enum(["BUYER", "SELLER", "TENANT", "LANDLORD", "OTHER"]).optional(),
         // Field types to auto-place for this signer (the LWC sends these instead of x/y boxes).
         autoFields: z.array(fieldType).optional(),
       }),
