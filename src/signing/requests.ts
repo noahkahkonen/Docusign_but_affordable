@@ -46,6 +46,17 @@ export interface CreateRequestInput {
   signers: CreateSignerInput[];
   /** Explicit field placements. Optional when signers use autoFields. */
   fields?: CreateFieldInput[];
+  /**
+   * When true, allow creating a DRAFT with no fields yet — the sender will place them in the
+   * browser-based prepare page before sending. (Normally at least one field is required.)
+   */
+  prepare?: boolean;
+}
+
+function httpError(status: number, message: string): Error {
+  const err = new Error(message);
+  (err as { statusCode?: number }).statusCode = status;
+  return err;
 }
 
 /** Create a DRAFT request: pull the source PDF from Salesforce, hash it, persist signers+fields. */
@@ -76,9 +87,14 @@ export async function createSignatureRequest(input: CreateRequestInput) {
   }));
   const fields: CreateFieldInput[] = [...(input.fields ?? []), ...autoPlaced];
 
-  if (fields.length === 0) {
+  if (fields.length === 0 && !input.prepare) {
     throw new Error("At least one field is required (explicit placements or signer autoFields)");
   }
+
+  // Mint a sender "prepare" token so the draft can be opened in the field-placement page without
+  // the backend API key. Only its hash is stored.
+  const { token: prepareToken, tokenHash: prepareTokenHash } = issueToken();
+  const prepareTokenExpiresAt = expiryFromNow(env.SIGNING_LINK_TTL_HOURS);
 
   // Validate every field's placement against the real page geometry before we store anything.
   for (const f of fields) {
@@ -99,6 +115,8 @@ export async function createSignatureRequest(input: CreateRequestInput) {
         originalContentVersionId: input.contentVersionId,
         documentName: input.documentName,
         status: "DRAFT",
+        prepareTokenHash,
+        prepareTokenExpiresAt,
         docHashOriginal,
         originalPdf: toPrismaBytes(originalPdf),
       },
@@ -141,7 +159,7 @@ export async function createSignatureRequest(input: CreateRequestInput) {
       metadata: { signers: input.signers.length, fields: fields.length },
     });
 
-    return { requestId: request.id, signerIds, docHashOriginal };
+    return { requestId: request.id, signerIds, docHashOriginal, prepareToken };
   });
 }
 
@@ -161,6 +179,13 @@ export async function sendSignatureRequest(requestId: string): Promise<SigningLi
   if (!request) throw new Error(`Signature request ${requestId} not found`);
   if (request.status !== "DRAFT") {
     throw new Error(`Request ${requestId} is ${request.status}, expected DRAFT`);
+  }
+
+  // A request with no fields can't be signed — block sending (a draft prepared in the placement
+  // page must have at least one field placed first).
+  const fieldCount = await prisma.field.count({ where: { requestId } });
+  if (fieldCount === 0) {
+    throw httpError(422, "Add at least one field before sending for signature.");
   }
 
   const links: SigningLink[] = [];
@@ -258,6 +283,125 @@ export async function resendSignatureRequest(requestId: string): Promise<Signing
 
   logger.info({ requestId, signers: links.length }, "Signature request resent");
   return links;
+}
+
+/* ---------- Sender "prepare" (field placement) ---------- */
+
+/** Resolve a prepare token to its DRAFT request, enforcing existence, DRAFT status, and expiry. */
+async function resolvePrepareToken(token: string) {
+  const tokenHash = hashToken(token);
+  const request = await prisma.signatureRequest.findFirst({
+    where: { prepareTokenHash: tokenHash },
+    include: { signers: { orderBy: { createdAt: "asc" } } },
+  });
+  if (!request) throw httpError(404, "Invalid or unknown preparation link");
+  if (request.status !== "DRAFT") {
+    throw httpError(409, "This request has already been sent and can no longer be edited.");
+  }
+  if (request.prepareTokenExpiresAt && request.prepareTokenExpiresAt.getTime() < Date.now()) {
+    throw httpError(410, "This preparation link has expired.");
+  }
+  return request;
+}
+
+/** Everything the prepare page needs: document name, signers, page geometry, current fields. */
+export async function getPrepareContext(token: string) {
+  const request = await resolvePrepareToken(token);
+  const layouts = request.originalPdf
+    ? await getPageLayouts(Buffer.from(request.originalPdf))
+    : [];
+  const fields = await prisma.field.findMany({
+    where: { requestId: request.id },
+    orderBy: [{ pageIndex: "asc" }, { y: "asc" }],
+  });
+  // The prepare page works in signer *indexes* (matching CreateFieldInput); map id -> index.
+  const indexById = new Map(request.signers.map((s, i) => [s.id, i]));
+  return {
+    request: { id: request.id, documentName: request.documentName, status: request.status },
+    signers: request.signers.map((s, i) => ({
+      index: i,
+      id: s.id,
+      name: s.name,
+      entityLabel: s.entityLabel,
+    })),
+    pages: layouts,
+    fields: fields.map((f) => ({
+      signerIndex: indexById.get(f.signerId) ?? 0,
+      type: f.type,
+      label: f.label,
+      required: f.required,
+      pageIndex: f.pageIndex,
+      x: f.x,
+      y: f.y,
+      width: f.width,
+      height: f.height,
+    })),
+  };
+}
+
+/** The source PDF bytes for a prepare token (the placement page renders them with pdf.js). */
+export async function getPrepareDocument(token: string): Promise<Buffer> {
+  const request = await resolvePrepareToken(token);
+  if (!request.originalPdf) throw new Error("Source document is missing");
+  return Buffer.from(request.originalPdf);
+}
+
+export interface PlaceFieldInput {
+  signerIndex: number;
+  type: FieldType;
+  label?: string;
+  required?: boolean;
+  pageIndex: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Replace the entire field set on a DRAFT (the placement page saves the whole layout at once). */
+export async function replaceDraftFields(token: string, fields: PlaceFieldInput[]) {
+  const request = await resolvePrepareToken(token);
+  const layouts = request.originalPdf
+    ? await getPageLayouts(Buffer.from(request.originalPdf))
+    : [];
+
+  for (const f of fields) {
+    if (!layouts[f.pageIndex]) {
+      throw httpError(400, `Field references page ${f.pageIndex} but the document has ${layouts.length} pages`);
+    }
+    if (f.signerIndex < 0 || f.signerIndex >= request.signers.length) {
+      throw httpError(400, `Field references signer ${f.signerIndex} which does not exist`);
+    }
+    if (f.width <= 0 || f.height <= 0) throw httpError(400, "Field width and height must be positive");
+  }
+
+  const signerIds = request.signers.map((s) => s.id);
+  await prisma.$transaction(async (tx) => {
+    await tx.field.deleteMany({ where: { requestId: request.id } });
+    if (fields.length > 0) {
+      await tx.field.createMany({
+        data: fields.map((f) => ({
+          requestId: request.id,
+          signerId: signerIds[f.signerIndex],
+          type: f.type,
+          label: f.label ?? null,
+          required: f.required ?? true,
+          pageIndex: f.pageIndex,
+          x: f.x,
+          y: f.y,
+          width: f.width,
+          height: f.height,
+        })),
+      });
+    }
+  });
+  return { fields: fields.length };
+}
+
+/** Send a DRAFT identified by its prepare token (mints signer links + emails them). */
+export async function sendDraftByPrepareToken(token: string): Promise<SigningLink[]> {
+  const request = await resolvePrepareToken(token);
+  return sendSignatureRequest(request.id);
 }
 
 /** Resolve a presented token to its signer, enforcing existence + expiry. */

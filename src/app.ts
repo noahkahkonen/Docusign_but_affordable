@@ -8,6 +8,7 @@ import { salesforceRoutes } from "./routes/salesforce.js";
 import { requestRoutes } from "./routes/requests.js";
 import { signingRoutes } from "./routes/signing.js";
 import { portalRoutes } from "./routes/portal.js";
+import { prepareRoutes } from "./routes/prepare.js";
 
 /**
  * Build the Fastify app. Kept separate from server bootstrap so tests can construct it
@@ -46,6 +47,7 @@ export async function buildApp() {
   await app.register(requestRoutes);
   await app.register(signingRoutes);
   await app.register(portalRoutes);
+  await app.register(prepareRoutes);
 
   return app;
 }

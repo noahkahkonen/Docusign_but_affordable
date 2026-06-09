@@ -77,6 +77,12 @@ model SignatureRequest {
 
   status RequestStatus @default(DRAFT)
 
+  // Sender "prepare" access: a high-entropy token (only its SHA-256 hash is stored) that lets the
+  // sender open the browser-based field-placement page for a DRAFT without holding the backend API
+  // key. Ignored once the request leaves DRAFT.
+  prepareTokenHash      String?   @map("prepare_token_hash")
+  prepareTokenExpiresAt DateTime? @map("prepare_token_expires_at")
+
   // Tamper-evidence
   docHashOriginal String? @map("doc_hash_original") // SHA-256 hex of the source PDF bytes
   docHashFinal    String? @map("doc_hash_final")    // SHA-256 hex of the flattened signed PDF

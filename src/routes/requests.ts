@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { env } from "../config/env.js";
 import { registerApiKeyGuard } from "../lib/api-key-guard.js";
 import {
   createSignatureRequest,
@@ -48,6 +49,9 @@ const createSchema = z.object({
     )
     .min(1),
   fields: z.array(fieldSchema).default([]),
+  // When true, create an empty DRAFT to be configured in the browser placement page (no fields
+  // or autoFields required up front).
+  prepare: z.boolean().optional(),
 });
 
 export async function requestRoutes(app: FastifyInstance): Promise<void> {
@@ -57,7 +61,9 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/requests", async (req, reply) => {
     const body = createSchema.parse(req.body);
     const result = await createSignatureRequest(body);
-    return reply.code(201).send(result);
+    // The sender opens this to place fields in the browser (then send from there).
+    const prepareUrl = `${env.APP_BASE_URL}/prepare/${result.prepareToken}`;
+    return reply.code(201).send({ ...result, prepareUrl });
   });
 
   // Mint signer tokens and move to SENT. Returns the per-signer signing links.

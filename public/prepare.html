@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{BRAND_NAME}} — Prepare Document</title>
+    <style>
+      :root {
+        --brand: {{BRAND_PRIMARY_COLOR}};
+        --ink: #0f172a; --muted: #64748b; --line: #e2e8f0; --bg: #f6f8fa;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        color: var(--ink); background: var(--bg); }
+
+      header { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 12px;
+        padding: 12px 18px; background: #fff; border-bottom: 1px solid var(--line); }
+      header .logo { height: 26px; }
+      header .brand { font-weight: 700; font-size: 17px; }
+      header .brand .dot { color: var(--brand); }
+      header .doc { color: var(--muted); font-size: 14px; max-width: 36vw; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; }
+      header .spacer { margin-left: auto; }
+      .saved { font-size: 13px; color: var(--muted); min-width: 96px; text-align: right; }
+
+      .btn { appearance: none; border: 1px solid transparent; border-radius: 9px; padding: 9px 16px;
+        font-size: 14px; font-weight: 600; cursor: pointer; }
+      .btn-primary { background: var(--brand); color: #fff; }
+      .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+      .btn-ghost { background: #fff; color: var(--ink); border: 1px solid var(--line); }
+
+      .layout { display: flex; align-items: flex-start; gap: 18px; max-width: 1180px; margin: 0 auto;
+        padding: 18px 16px 96px; }
+      .sidebar { position: sticky; top: 74px; width: 240px; flex: none; display: flex; flex-direction: column;
+        gap: 16px; }
+      @media (max-width: 820px) { .layout { flex-direction: column; } .sidebar { position: static; width: 100%; } }
+
+      .panel { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+      .panel h3 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.04em;
+        color: var(--muted); }
+      select { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px;
+        font-size: 14px; background: #fff; }
+      .palette { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      .tool { padding: 10px 8px; border: 1px solid var(--line); border-radius: 9px; background: #fff;
+        cursor: pointer; font-size: 13px; font-weight: 600; text-align: center; user-select: none; }
+      .tool .ico { display: block; font-size: 17px; margin-bottom: 3px; }
+      .tool.active { border-color: var(--brand); box-shadow: 0 0 0 2px color-mix(in srgb, var(--brand) 30%, white); }
+      .hint { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+      .legend { display: flex; flex-direction: column; gap: 6px; }
+      .legend .row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+      .legend .sw { width: 13px; height: 13px; border-radius: 3px; flex: none; }
+
+      .docarea { flex: 1; min-width: 0; }
+      .pages { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+      .page { position: relative; background: #fff; box-shadow: 0 1px 5px rgba(15,23,42,0.14);
+        border-radius: 4px; }
+      .page.placing { cursor: crosshair; }
+      .page canvas { display: block; border-radius: 4px; }
+
+      .fld { position: absolute; border: 1.5px solid var(--c, var(--brand));
+        background: color-mix(in srgb, var(--c, var(--brand)) 12%, transparent); border-radius: 4px;
+        cursor: move; display: flex; align-items: center; justify-content: center; font-size: 11px;
+        font-weight: 700; color: var(--c, var(--brand)); user-select: none; touch-action: none; }
+      .fld .lbl { pointer-events: none; padding: 0 4px; overflow: hidden; white-space: nowrap; }
+      .fld .del { position: absolute; top: -10px; right: -10px; width: 20px; height: 20px; border-radius: 50%;
+        background: #fff; border: 1px solid var(--line); color: #ef4444; font-size: 13px; line-height: 1;
+        display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+      .fld .grip { position: absolute; right: -6px; bottom: -6px; width: 14px; height: 14px; border-radius: 3px;
+        background: #fff; border: 1.5px solid var(--c, var(--brand)); cursor: nwse-resize; touch-action: none; }
+
+      .actionbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; background: #fff;
+        border-top: 1px solid var(--line); padding: 12px 16px; }
+      .actionbar .inner { max-width: 1180px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+      .count { color: var(--muted); font-size: 14px; }
+      .actionbar .spacer { margin-left: auto; }
+
+      .state { text-align: center; padding: 60px 22px; }
+      .state .check { width: 54px; height: 54px; border-radius: 50%;
+        background: color-mix(in srgb, var(--brand) 12%, white); color: var(--brand); display: inline-flex;
+        align-items: center; justify-content: center; font-size: 28px; margin-bottom: 12px; }
+      .err { color: #b91c1c; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img class="logo hidden" id="logo" alt="" style="display:none" />
+      <span class="brand">{{BRAND_NAME}}<span class="dot">.</span></span>
+      <span class="doc" id="docName"></span>
+      <span class="spacer"></span>
+      <span class="saved" id="saved"></span>
+    </header>
+
+    <div id="root">
+      <div class="state" id="loading">Loading document…</div>
+    </div>
+
+    <div class="actionbar hidden" id="actionbar" style="display:none">
+      <div class="inner">
+        <span class="count" id="count">0 fields placed</span>
+        <span class="spacer"></span>
+        <button class="btn btn-primary" id="sendBtn" disabled>Send for signature</button>
+      </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+      const PDFJS = window["pdfjsLib"];
+      if (PDFJS) PDFJS.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+      const token = decodeURIComponent(location.pathname.split("/").filter(Boolean).pop() || "");
+      const api = (p) => `/api/prepare/${encodeURIComponent(token)}${p}`;
+      const $ = (id) => document.getElementById(id);
+
+      const SIGNER_COLORS = ["#10b981", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#ef4444", "#0ea5e9"];
+      const DEFAULTS = {
+        SIGNATURE: { w: 200, h: 56, label: "Signature", ico: "✍️" },
+        INITIALS:  { w: 90,  h: 56, label: "Initials",  ico: "🔡" },
+        DATE:      { w: 120, h: 28, label: "Date",      ico: "📅" },
+        TEXT:      { w: 160, h: 28, label: "Text",      ico: "📝" },
+      };
+
+      const state = {
+        ctx: null, pdf: null, fields: [], nextId: 1,
+        activeSigner: 0, activeTool: null,
+        pageScale: {}, // pageIndex -> css scale
+      };
+
+      function signerColor(i) { return SIGNER_COLORS[i % SIGNER_COLORS.length]; }
+      function showState(msg, glyph, isErr) {
+        $("actionbar").style.display = "none";
+        $("root").innerHTML = `<div class="state"><div class="check">${glyph || "✓"}</div>` +
+          `<h2 class="${isErr ? "err" : ""}">${msg}</h2></div>`;
+      }
+
+      async function boot() {
+        try {
+          const res = await fetch(api(""));
+          if (!res.ok) throw new Error((await res.json()).message || "This preparation link is not valid.");
+          const ctx = await res.json();
+          state.ctx = ctx;
+          $("docName").textContent = ctx.request.documentName || "";
+          const logoUrl = "{{BRAND_LOGO_URL}}";
+          if (logoUrl) { $("logo").src = logoUrl; $("logo").style.display = "block"; }
+          buildUi();
+          await renderDocument();
+          // Seed any already-placed fields.
+          for (const f of ctx.fields) addField({ ...f, id: state.nextId++ }, false);
+          refresh();
+        } catch (e) { showState(e.message, "—", true); }
+      }
+
+      function buildUi() {
+        const signers = state.ctx.signers;
+        $("root").innerHTML =
+          '<div class="layout">' +
+            '<aside class="sidebar">' +
+              '<div class="panel"><h3>Signer</h3><select id="signerSel"></select>' +
+                '<p class="hint" style="margin:10px 0 0">Fields you place apply to the selected signer.</p></div>' +
+              '<div class="panel"><h3>Add field</h3><div class="palette" id="palette"></div>' +
+                '<p class="hint" style="margin:10px 0 0">Pick a field, then click on the document to place it. Drag to move, corner to resize.</p></div>' +
+              '<div class="panel"><h3>Signers</h3><div class="legend" id="legend"></div></div>' +
+            '</aside>' +
+            '<div class="docarea"><div class="pages" id="pages"></div></div>' +
+          '</div>';
+        const sel = $("signerSel");
+        signers.forEach((s) => {
+          const o = document.createElement("option");
+          o.value = String(s.index);
+          o.textContent = s.entityLabel ? `${s.name} — ${s.entityLabel}` : s.name;
+          sel.appendChild(o);
+        });
+        sel.addEventListener("change", () => { state.activeSigner = Number(sel.value); });
+
+        const pal = $("palette");
+        Object.entries(DEFAULTS).forEach(([type, d]) => {
+          const b = document.createElement("div");
+          b.className = "tool"; b.dataset.type = type;
+          b.innerHTML = `<span class="ico">${d.ico}</span>${d.label}`;
+          b.addEventListener("click", () => selectTool(type));
+          pal.appendChild(b);
+        });
+
+        const legend = $("legend");
+        signers.forEach((s) => {
+          const row = document.createElement("div"); row.className = "row";
+          row.innerHTML = `<span class="sw" style="background:${signerColor(s.index)}"></span>${s.name}`;
+          legend.appendChild(row);
+        });
+
+        $("actionbar").style.display = "block";
+        $("actionbar").classList.remove("hidden");
+        $("sendBtn").addEventListener("click", send);
+      }
+
+      function selectTool(type) {
+        state.activeTool = state.activeTool === type ? null : type;
+        document.querySelectorAll(".tool").forEach((t) =>
+          t.classList.toggle("active", t.dataset.type === state.activeTool));
+        document.querySelectorAll(".page").forEach((p) =>
+          p.classList.toggle("placing", !!state.activeTool));
+      }
+
+      async function renderDocument() {
+        const data = await fetch(api("/document")).then((r) => r.arrayBuffer());
+        const pdf = await PDFJS.getDocument({ data }).promise;
+        state.pdf = pdf;
+        const pagesEl = $("pages");
+        const maxWidth = Math.min(pagesEl.clientWidth || 800, 800);
+        const dpr = Math.min(window.devicePixelRatio || 1, 3);
+
+        for (const layout of state.ctx.pages) {
+          const page = await pdf.getPage(layout.pageIndex + 1);
+          const unscaled = page.getViewport({ scale: 1 });
+          const scale = maxWidth / unscaled.width;
+          state.pageScale[layout.pageIndex] = scale;
+          const viewport = page.getViewport({ scale });
+
+          const pageEl = document.createElement("div");
+          pageEl.className = "page";
+          pageEl.dataset.pageIndex = String(layout.pageIndex);
+          pageEl.style.width = viewport.width + "px";
+          pageEl.style.height = viewport.height + "px";
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.round(viewport.width * dpr);
+          canvas.height = Math.round(viewport.height * dpr);
+          canvas.style.width = viewport.width + "px";
+          canvas.style.height = viewport.height + "px";
+          pageEl.appendChild(canvas);
+          pagesEl.appendChild(pageEl);
+          await page.render({
+            canvasContext: canvas.getContext("2d"),
+            viewport: page.getViewport({ scale: scale * dpr }),
+          }).promise;
+
+          pageEl.addEventListener("pointerdown", (e) => onPagePointerDown(e, layout.pageIndex, pageEl));
+        }
+      }
+
+      function onPagePointerDown(e, pageIndex, pageEl) {
+        if (!state.activeTool || e.target.closest(".fld")) return;
+        const scale = state.pageScale[pageIndex];
+        const rect = pageEl.getBoundingClientRect();
+        const d = DEFAULTS[state.activeTool];
+        const pageLayout = state.ctx.pages.find((p) => p.pageIndex === pageIndex);
+        // Click point becomes the field's top-left, in PDF points; clamp on-page.
+        let x = (e.clientX - rect.left) / scale;
+        let y = (e.clientY - rect.top) / scale;
+        x = Math.max(0, Math.min(x, pageLayout.width - d.w));
+        y = Math.max(0, Math.min(y, pageLayout.height - d.h));
+        addField({
+          id: state.nextId++, signerIndex: state.activeSigner, type: state.activeTool,
+          label: d.label, required: true, pageIndex, x, y, width: d.w, height: d.h,
+        }, true);
+        refresh();
+      }
+
+      function addField(f, dirty) {
+        state.fields.push(f);
+        const pageEl = document.querySelector(`.page[data-page-index="${f.pageIndex}"]`);
+        if (pageEl) pageEl.appendChild(makeFieldEl(f, pageEl));
+        if (dirty) scheduleSave();
+      }
+
+      function makeFieldEl(f, pageEl) {
+        const scale = state.pageScale[f.pageIndex];
+        const color = signerColor(f.signerIndex);
+        const el = document.createElement("div");
+        el.className = "fld"; el.style.setProperty("--c", color);
+        el.dataset.fid = String(f.id);
+        const place = () => {
+          el.style.left = f.x * scale + "px"; el.style.top = f.y * scale + "px";
+          el.style.width = f.width * scale + "px"; el.style.height = f.height * scale + "px";
+        };
+        place();
+        const signerName = (state.ctx.signers[f.signerIndex] || {}).name || "";
+        el.innerHTML = `<span class="lbl">${DEFAULTS[f.type].label} · ${signerName.split(" ")[0] || ""}</span>` +
+          `<span class="grip"></span><span class="del" title="Remove">✕</span>`;
+
+        el.querySelector(".del").addEventListener("pointerdown", (e) => {
+          e.stopPropagation();
+          state.fields = state.fields.filter((x) => x.id !== f.id);
+          el.remove(); scheduleSave(); refresh();
+        });
+
+        // Drag to move.
+        el.addEventListener("pointerdown", (e) => {
+          if (e.target.classList.contains("grip") || e.target.classList.contains("del")) return;
+          e.stopPropagation(); e.preventDefault();
+          const rect = pageEl.getBoundingClientRect();
+          const layout = state.ctx.pages.find((p) => p.pageIndex === f.pageIndex);
+          const offX = e.clientX - (rect.left + f.x * scale);
+          const offY = e.clientY - (rect.top + f.y * scale);
+          el.setPointerCapture(e.pointerId);
+          const move = (ev) => {
+            let nx = (ev.clientX - rect.left - offX) / scale;
+            let ny = (ev.clientY - rect.top - offY) / scale;
+            f.x = Math.max(0, Math.min(nx, layout.width - f.width));
+            f.y = Math.max(0, Math.min(ny, layout.height - f.height));
+            place();
+          };
+          const up = () => { el.removeEventListener("pointermove", move); el.removeEventListener("pointerup", up); scheduleSave(); };
+          el.addEventListener("pointermove", move); el.addEventListener("pointerup", up);
+        });
+
+        // Resize via the corner grip.
+        el.querySelector(".grip").addEventListener("pointerdown", (e) => {
+          e.stopPropagation(); e.preventDefault();
+          const rect = pageEl.getBoundingClientRect();
+          const layout = state.ctx.pages.find((p) => p.pageIndex === f.pageIndex);
+          const grip = e.target; grip.setPointerCapture(e.pointerId);
+          const move = (ev) => {
+            let w = (ev.clientX - rect.left) / scale - f.x;
+            let h = (ev.clientY - rect.top) / scale - f.y;
+            f.width = Math.max(28, Math.min(w, layout.width - f.x));
+            f.height = Math.max(16, Math.min(h, layout.height - f.y));
+            place();
+          };
+          const up = () => { grip.removeEventListener("pointermove", move); grip.removeEventListener("pointerup", up); scheduleSave(); };
+          grip.addEventListener("pointermove", move); grip.addEventListener("pointerup", up);
+        });
+
+        return el;
+      }
+
+      function refresh() {
+        const n = state.fields.length;
+        $("count").textContent = `${n} field${n === 1 ? "" : "s"} placed`;
+        $("sendBtn").disabled = n === 0;
+      }
+
+      /* ---------- Autosave ---------- */
+      let saveTimer = null, saving = false;
+      function scheduleSave() {
+        $("saved").textContent = "Editing…";
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(saveFields, 600);
+      }
+      async function saveFields() {
+        if (saving) { scheduleSave(); return; }
+        saving = true;
+        try {
+          const body = { fields: state.fields.map((f) => ({
+            signerIndex: f.signerIndex, type: f.type, label: f.label, required: f.required,
+            pageIndex: f.pageIndex, x: f.x, y: f.y, width: f.width, height: f.height,
+          })) };
+          const r = await fetch(api("/fields"), {
+            method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+          });
+          if (!r.ok) throw new Error("save failed");
+          $("saved").textContent = "All changes saved";
+        } catch (e) {
+          $("saved").textContent = "Save failed — retrying…";
+          clearTimeout(saveTimer); saveTimer = setTimeout(saveFields, 1500);
+        } finally { saving = false; }
+      }
+
+      /* ---------- Send ---------- */
+      async function send() {
+        $("sendBtn").disabled = true;
+        try {
+          await saveFields();
+          const r = await fetch(api("/send"), { method: "POST" });
+          const out = await r.json();
+          if (!r.ok) throw new Error(out.message || "Could not send for signature.");
+          showState(`Sent for signature to ${out.sent} signer${out.sent === 1 ? "" : "s"}. They’ll receive an email with their signing link.`, "✓");
+        } catch (e) {
+          alert(e.message);
+          $("sendBtn").disabled = false;
+        }
+      }
+
+      boot();
+    </script>
+  </body>
+</html>
