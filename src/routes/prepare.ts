@@ -44,6 +44,8 @@ const fieldsSchema = z.object({
 
 const roleFieldsSchema = z.object({
   name: z.string().min(1).max(120),
+  documentType: z.string().min(1).max(120).optional(),
+  autoSend: z.boolean().optional(),
   fields: z
     .array(
       z.object({
@@ -119,8 +121,8 @@ export async function prepareRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/api/prepare/:token/templates", async (req) => {
     const { token } = tokenParams.parse(req.params);
-    const { name, fields } = roleFieldsSchema.parse(req.body);
-    return saveTemplateFromDraft(token, name, fields);
+    const { name, fields, documentType, autoSend } = roleFieldsSchema.parse(req.body);
+    return saveTemplateFromDraft(token, name, fields, { documentType, autoSend });
   });
 
   app.post("/api/prepare/:token/apply-template", async (req) => {

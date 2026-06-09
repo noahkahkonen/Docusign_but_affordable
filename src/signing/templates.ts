@@ -28,11 +28,17 @@ export interface RoleFieldInput {
   height: number;
 }
 
+export interface SaveTemplateOptions {
+  documentType?: string; // stable match key; defaults to the request's documentType/name
+  autoSend?: boolean; // mark trusted so the docgen flow sends without review
+}
+
 /** Save the supplied role-keyed placements as a new named template (labelled by the draft's doc). */
 export async function saveTemplateFromDraft(
   token: string,
   name: string,
   fields: RoleFieldInput[],
+  options: SaveTemplateOptions = {},
 ) {
   const request = await resolvePrepareToken(token);
   if (fields.length === 0) throw httpError(400, "Place at least one field before saving a template.");
@@ -40,7 +46,8 @@ export async function saveTemplateFromDraft(
   const template = await prisma.template.create({
     data: {
       name,
-      documentType: request.documentName,
+      documentType: options.documentType ?? request.documentType ?? request.documentName,
+      autoSend: options.autoSend ?? false,
       fields: {
         create: fields.map((f) => ({
           role: f.role,
@@ -106,7 +113,39 @@ export async function applyTemplateToDraft(token: string, templateId: string): P
     include: { fields: true },
   });
   if (!template) throw httpError(404, "Template not found.");
+  return applyTemplateToRequest(request, template);
+}
 
+/** The newest trusted (autoSend) template matching a document-type key, or null. */
+export async function findAutoSendTemplate(documentType: string) {
+  return prisma.template.findFirst({
+    where: { documentType, autoSend: true },
+    orderBy: { updatedAt: "desc" },
+    include: { fields: true },
+  });
+}
+
+type RequestWithSigners = { id: string; originalPdf: Uint8Array | null; signers: { id: string; role: SignerRole | null }[] };
+type TemplateWithFields = { fields: { role: SignerRole; type: FieldType; label: string | null; required: boolean; pageIndex: number; x: number; y: number; width: number; height: number }[] };
+
+/** Apply a template by request id (used by the auto-send/from-deal path). */
+export async function applyTemplateToRequestId(requestId: string, templateId: string): Promise<ApplyResult> {
+  const request = await prisma.signatureRequest.findUniqueOrThrow({
+    where: { id: requestId },
+    include: { signers: { orderBy: { createdAt: "asc" } } },
+  });
+  const template = await prisma.template.findUnique({ where: { id: templateId }, include: { fields: true } });
+  if (!template) throw httpError(404, "Template not found.");
+  return applyTemplateToRequest(
+    { id: request.id, originalPdf: request.originalPdf ? Buffer.from(request.originalPdf) : null, signers: request.signers },
+    template,
+  );
+}
+
+async function applyTemplateToRequest(
+  request: RequestWithSigners,
+  template: TemplateWithFields,
+): Promise<ApplyResult> {
   const layouts = request.originalPdf ? await getPageLayouts(Buffer.from(request.originalPdf)) : [];
 
   // role -> { signerId, index } using the FIRST signer that plays each role.

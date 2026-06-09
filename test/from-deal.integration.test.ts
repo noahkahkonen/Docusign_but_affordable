@@ -37,6 +37,8 @@ describe.runIf(run)("createRequestFromDeal (integration)", () => {
     prismaMod = await import("../src/db/prisma.js");
     await prismaMod.prisma.auditEvent.deleteMany();
     await prismaMod.prisma.field.deleteMany();
+    await prismaMod.prisma.templateField.deleteMany();
+    await prismaMod.prisma.template.deleteMany();
     await prismaMod.prisma.signer.deleteMany();
     await prismaMod.prisma.signatureRequest.deleteMany();
   });
@@ -76,5 +78,55 @@ describe.runIf(run)("createRequestFromDeal (integration)", () => {
   it("rejects a deal whose record type has no routing rule", async () => {
     holder.parties = { recordType: "Consulting", contactsByRole: {} };
     await expect(mod.createRequestFromDeal(dealInput)).rejects.toThrow(/no routing rule/i);
+  });
+
+  it("auto-sends when a trusted template matches the document type", async () => {
+    // Seed a trusted (autoSend) template for the 'agency-disclosure' document type.
+    await prismaMod.prisma.template.create({
+      data: {
+        name: "Agency Disclosure (trusted)",
+        documentType: "agency-disclosure",
+        autoSend: true,
+        fields: {
+          create: [
+            { role: "SELLER", type: "SIGNATURE", pageIndex: 0, x: 90, y: 600, width: 200, height: 56, required: true },
+          ],
+        },
+      },
+    });
+    holder.parties = {
+      recordType: "Seller_Rep",
+      contactsByRole: { SELLER: { name: "Randy Best", email: "randy@example.com" } },
+    };
+
+    const res = await mod.createRequestFromDeal({ ...dealInput, documentType: "agency-disclosure" });
+    expect(res.sent).toBe(true);
+
+    const row = await prismaMod.prisma.signatureRequest.findUniqueOrThrow({ where: { id: res.requestId } });
+    expect(row.status).toBe("SENT");
+  });
+
+  it("does NOT auto-send when the matching template is not trusted (review fallback)", async () => {
+    await prismaMod.prisma.template.deleteMany();
+    await prismaMod.prisma.template.create({
+      data: {
+        name: "Untrusted",
+        documentType: "agency-disclosure",
+        autoSend: false,
+        fields: {
+          create: [
+            { role: "SELLER", type: "SIGNATURE", pageIndex: 0, x: 90, y: 600, width: 200, height: 56, required: true },
+          ],
+        },
+      },
+    });
+    holder.parties = {
+      recordType: "Seller_Rep",
+      contactsByRole: { SELLER: { name: "Randy Best", email: "randy@example.com" } },
+    };
+    const res = await mod.createRequestFromDeal({ ...dealInput, documentType: "agency-disclosure" });
+    expect(res.sent).toBe(false);
+    const row = await prismaMod.prisma.signatureRequest.findUniqueOrThrow({ where: { id: res.requestId } });
+    expect(row.status).toBe("DRAFT");
   });
 });

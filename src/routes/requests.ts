@@ -62,6 +62,7 @@ const fromDealSchema = z.object({
   salesforceObjectType: z.string().min(1).max(80),
   contentVersionId: z.string().min(15).max(18),
   documentName: z.string().min(1).max(255),
+  documentType: z.string().min(1).max(120).optional(),
 });
 
 export async function requestRoutes(app: FastifyInstance): Promise<void> {

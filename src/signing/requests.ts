@@ -13,6 +13,7 @@ import { generateCertificate, attemptWriteback } from "./writeback.js";
 import { sendSigningInvitations } from "./notifications.js";
 import { getDealParties } from "../salesforce/deal.js";
 import { computeRouting } from "./routing.js";
+import { findAutoSendTemplate, applyTemplateToRequestId } from "./templates.js";
 
 /**
  * Signature request lifecycle: create (draft) -> send (mint tokens) -> per-signer open/consent/
@@ -48,6 +49,7 @@ export interface CreateRequestInput {
   salesforceRecordType?: string; // Deal RecordType DeveloperName (routing/audit)
   contentVersionId: string; // the source PDF in Salesforce
   documentName: string;
+  documentType?: string; // stable key for template matching (e.g. "agency-disclosure")
   signers: CreateSignerInput[];
   /** Explicit field placements. Optional when signers use autoFields. */
   fields?: CreateFieldInput[];
@@ -120,6 +122,7 @@ export async function createSignatureRequest(input: CreateRequestInput) {
         salesforceRecordType: input.salesforceRecordType ?? null,
         originalContentVersionId: input.contentVersionId,
         documentName: input.documentName,
+        documentType: input.documentType ?? null,
         status: "DRAFT",
         prepareTokenHash,
         prepareTokenExpiresAt,
@@ -175,6 +178,7 @@ export interface FromDealInput {
   salesforceObjectType: string;
   contentVersionId: string;
   documentName: string;
+  documentType?: string; // stable key (e.g. "agency-disclosure") used to match a trusted template
 }
 
 /**
@@ -199,9 +203,30 @@ export async function createRequestFromDeal(input: FromDealInput) {
     salesforceRecordType: deal.recordType ?? undefined,
     contentVersionId: input.contentVersionId,
     documentName: input.documentName,
+    documentType: input.documentType,
     signers: routing.signers.map((s) => ({ name: s.name, email: s.email, role: s.role })),
     prepare: true,
   });
+
+  // Auto-send: if a TRUSTED template matches this document type and every required signer
+  // resolved, apply the template's fields and send straight away — no review step. Anything
+  // short of that (no template, untrusted, missing client signer, no fields applied) falls back
+  // to the prepare page.
+  let sent = false;
+  let autoSendNote: string | undefined;
+  const template = input.documentType ? await findAutoSendTemplate(input.documentType) : null;
+  if (template && routing.missingRequired.length === 0) {
+    const applied = await applyTemplateToRequestId(created.requestId, template.id);
+    if (applied.applied > 0) {
+      await sendSignatureRequest(created.requestId);
+      sent = true;
+      autoSendNote = `Auto-sent using template "${template.name}".`;
+    } else {
+      autoSendNote = `Template "${template.name}" matched but placed no fields; review needed.`;
+    }
+  } else if (template) {
+    autoSendNote = `Missing required signer(s): ${routing.missingRequired.join(", ")}; review needed.`;
+  }
 
   return {
     requestId: created.requestId,
@@ -209,6 +234,8 @@ export async function createRequestFromDeal(input: FromDealInput) {
     recordType: deal.recordType,
     signers: routing.signers.map((s) => ({ role: s.role, name: s.name, email: s.email })),
     missingRequired: routing.missingRequired,
+    sent,
+    autoSendNote,
   };
 }
 
@@ -366,7 +393,12 @@ export async function getPrepareContext(token: string) {
   // The prepare page works in signer *indexes* (matching CreateFieldInput); map id -> index.
   const indexById = new Map(request.signers.map((s, i) => [s.id, i]));
   return {
-    request: { id: request.id, documentName: request.documentName, status: request.status },
+    request: {
+      id: request.id,
+      documentName: request.documentName,
+      documentType: request.documentType,
+      status: request.status,
+    },
     signers: request.signers.map((s, i) => ({
       index: i,
       id: s.id,

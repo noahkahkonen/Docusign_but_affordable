@@ -85,7 +85,8 @@ model SignatureRequest {
   originalContentVersionId String  @map("original_content_version_id")  // ContentVersion.Id of the source PDF
   salesforceRequestRecordId String? @map("salesforce_request_record_id") // Signature_Request__c.Id once mirrored
 
-  documentName String @map("document_name")
+  documentName String  @map("document_name")
+  documentType String? @map("document_type") // stable key for template matching (e.g. "agency-disclosure")
 
   status RequestStatus @default(DRAFT)
 
