@@ -44,7 +44,7 @@ const fieldsSchema = z.object({
 
 const roleFieldsSchema = z.object({
   name: z.string().min(1).max(120),
-  documentType: z.string().min(1).max(120).optional(),
+  documentType: z.string().max(120).nullish().transform((v) => v || undefined),
   autoSend: z.boolean().optional(),
   fields: z
     .array(
