@@ -25,13 +25,17 @@ export interface SigningInvitationInput {
 }
 
 /**
- * The "please sign" invitation a signer receives. Subject and body name the document and lead with
- * one unmistakable call-to-action button (plus a copy-paste URL fallback for clients that strip
- * the button).
+ * The "please sign" invitation a signer receives. Leads with the InkPath wordmark (black letters,
+ * green dot), names the document, says who it's from (trust), and offers one call-to-action button.
+ * No raw URL is shown (cleaner + better for spam filters); the button carries the link. Fine print:
+ * "Valid for N days" and the "a Kahkonen Company" footer.
  */
 export function signingInvitationEmail(input: SigningInvitationInput): OutgoingEmail {
   const brand = env.BRAND_NAME;
   const color = env.BRAND_PRIMARY_COLOR;
+  const sentBy = env.BRAND_SENT_BY_NAME;
+  const company = env.BRAND_SENT_BY_COMPANY;
+  const footer = env.BRAND_EMAIL_FOOTER;
   const days = Math.round(input.expiresInHours / 24);
   const expiry =
     input.expiresInHours % 24 === 0 && days >= 1
@@ -39,23 +43,21 @@ export function signingInvitationEmail(input: SigningInvitationInput): OutgoingE
       : `${input.expiresInHours} hour${input.expiresInHours === 1 ? "" : "s"}`;
 
   const subject = `${input.documentName} — please sign`;
+  const ink = "#0f172a"; // near-black for the wordmark letters
 
   const text = [
     `Hi ${input.signerName},`,
     ``,
     `You've been asked to review and sign "${input.documentName}".`,
     ``,
-    `Open your secure signing link:`,
-    input.signingUrl,
+    `This was sent to you by ${sentBy} at ${company}.`,
     ``,
-    `This personal link is valid for ${expiry}. Please don't forward it — it grants access to sign on your behalf.`,
+    `Use the "Review & sign" button in this email to open your secure signing page.`,
     ``,
-    `Sent via ${brand}.`,
+    `Valid for ${expiry}.`,
+    ``,
+    footer,
   ].join("\n");
-
-  const logo = env.BRAND_LOGO_URL
-    ? `<img src="${escapeHtml(env.BRAND_LOGO_URL)}" alt="${escapeHtml(brand)}" height="32" style="display:block;margin-bottom:24px" />`
-    : `<div style="font-size:20px;font-weight:700;color:${escapeHtml(color)};margin-bottom:24px">${escapeHtml(brand)}</div>`;
 
   const safeUrl = escapeHtml(input.signingUrl);
   const safeColor = escapeHtml(color);
@@ -87,13 +89,17 @@ export function signingInvitationEmail(input: SigningInvitationInput): OutgoingE
         <td align="center" style="padding:32px 16px">
           <table role="presentation" class="ip-card" width="520" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:520px;background:#ffffff;border-radius:12px;padding:32px">
             <tr><td>
-              ${logo}
+              <div style="font-size:24px;font-weight:700;letter-spacing:-0.01em;color:${ink};margin-bottom:26px">${escapeHtml(brand)}<span style="color:${safeColor}">.</span></div>
               <p style="margin:0 0 16px;font-size:16px;line-height:1.5">Hi ${escapeHtml(input.signerName)},</p>
-              <p style="margin:0 0 24px;font-size:16px;line-height:1.5">
+              <p style="margin:0 0 16px;font-size:16px;line-height:1.5">
                 You've been asked to review and sign
                 <strong>${escapeHtml(input.documentName)}</strong>.
               </p>
-              <table role="presentation" class="ip-btn" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 24px">
+              <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#334155">
+                This was sent to you by <strong>${escapeHtml(sentBy)}</strong> at
+                <strong>${escapeHtml(company)}</strong>.
+              </p>
+              <table role="presentation" class="ip-btn" cellpadding="0" cellspacing="0" border="0" style="margin:0 0 22px">
                 <tr><td align="center" bgcolor="${safeColor}" style="border-radius:8px;background:${safeColor}">
                   <a href="${safeUrl}"
                      style="display:inline-block;padding:16px 32px;font-size:16px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:8px;mso-padding-alt:0">
@@ -101,19 +107,12 @@ export function signingInvitationEmail(input: SigningInvitationInput): OutgoingE
                   </a>
                 </td></tr>
               </table>
-              <p style="margin:0 0 8px;font-size:14px;color:#6b7280;line-height:1.5">
-                Or paste this link into your browser:
-              </p>
-              <p style="margin:0 0 24px;font-size:14px;word-break:break-all;line-height:1.5">
-                <a href="${safeUrl}" style="color:${safeColor}">${safeUrl}</a>
-              </p>
               <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.5">
-                This personal link is valid for ${escapeHtml(expiry)}. Please don't forward it — it
-                grants access to sign on your behalf.
+                Valid for ${escapeHtml(expiry)}.
               </p>
             </td></tr>
           </table>
-          <p style="margin:16px 0 0;font-size:12px;color:#9aa5b1">Sent via ${escapeHtml(brand)}</p>
+          <p style="margin:16px 0 0;font-size:12px;color:#9aa5b1">${escapeHtml(footer)}</p>
         </td>
       </tr>
     </table>

@@ -11,13 +11,24 @@ describe("signing invitation template", () => {
     expiresInHours: 168,
   };
 
-  it("names the document in the subject and embeds the signing link", () => {
+  it("names the document, links the button, and hides the raw URL from the text body", () => {
     const email = signingInvitationEmail(base);
     expect(email.subject).toContain("Purchase & Sale Agreement");
     expect(email.to).toBe("dana@example.com");
     expect(email.toName).toBe("Dana <Buyer>");
-    expect(email.html).toContain(base.signingUrl);
-    expect(email.text).toContain(base.signingUrl);
+    // The button carries the link; the raw URL is intentionally not shown anywhere as text.
+    expect(email.html).toContain(`href="${base.signingUrl}"`);
+    expect(email.text).not.toContain(base.signingUrl);
+  });
+
+  it("includes the trust line, wordmark dot, and the Kahkonen Company footer", () => {
+    const email = signingInvitationEmail(base);
+    expect(email.html).toContain("Noah Kahkonen");
+    expect(email.html).toContain("Best Corporate Real Estate");
+    expect(email.html).toContain("Sent via InkPath, a Kahkonen Company");
+    expect(email.text).toContain("Sent via InkPath, a Kahkonen Company");
+    // Wordmark: brand letters then a coloured dot span.
+    expect(email.html).toContain("InkPath<span");
   });
 
   it("renders the TTL in days when it divides evenly, hours otherwise", () => {

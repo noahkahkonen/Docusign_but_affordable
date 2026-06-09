@@ -66,6 +66,12 @@ const schema = z.object({
   BRAND_LOGO_URL: z.string().optional(),
   BRAND_SENDER_NAME: z.string().default("InkPath Signatures"),
   BRAND_SENDER_EMAIL: z.string().email().default("no-reply@example.com"),
+
+  // Who the document is "sent on behalf of" — shown in the email so recipients know to trust it.
+  BRAND_SENT_BY_NAME: z.string().default("Noah Kahkonen"),
+  BRAND_SENT_BY_COMPANY: z.string().default("Best Corporate Real Estate"),
+  // The fine-print footer line at the very bottom of signing emails.
+  BRAND_EMAIL_FOOTER: z.string().default("Sent via InkPath, a Kahkonen Company"),
   })
   .superRefine((val, ctx) => {
     // The sender/admin API hands out signed contracts and audit trails. Refuse to boot in
