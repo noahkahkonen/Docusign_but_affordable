@@ -100,8 +100,9 @@ describe.runIf(run)("email delivery (integration)", () => {
       const sent = [...byRecipient.values()].find((m) => m.to.includes(link.email));
       expect(sent, `email to ${link.email}`).toBeTruthy();
       expect(sent!.subject).toContain("Lease Agreement.pdf");
-      expect(sent!.html).toContain(link.url);
-      expect(sent!.text).toContain(link.url);
+      // The link lives in the button href; the raw URL is intentionally not shown as text.
+      expect(sent!.html).toContain(`href="${link.url}"`);
+      expect(sent!.text).not.toContain(link.url);
     }
   });
 
