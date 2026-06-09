@@ -32,7 +32,8 @@ export interface SigningInvitationInput {
  */
 export function signingInvitationEmail(input: SigningInvitationInput): OutgoingEmail {
   const brand = env.BRAND_NAME;
-  const color = env.BRAND_PRIMARY_COLOR;
+  // Fall back to emerald if the brand colour is unset/blank, so the wordmark dot is never black.
+  const color = env.BRAND_PRIMARY_COLOR || "#10b981";
   const sentBy = env.BRAND_SENT_BY_NAME;
   const company = env.BRAND_SENT_BY_COMPANY;
   const footer = env.BRAND_EMAIL_FOOTER;
@@ -89,7 +90,7 @@ export function signingInvitationEmail(input: SigningInvitationInput): OutgoingE
         <td align="center" style="padding:32px 16px">
           <table role="presentation" class="ip-card" width="520" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:520px;background:#ffffff;border-radius:12px;padding:32px">
             <tr><td>
-              <div style="font-size:24px;font-weight:700;letter-spacing:-0.01em;color:${ink};margin-bottom:26px">${escapeHtml(brand)}<span style="color:${safeColor}">.</span></div>
+              <div style="font-size:24px;font-weight:700;letter-spacing:-0.01em;color:${ink};margin-bottom:26px">${escapeHtml(brand)}<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background-color:${safeColor};margin-left:3px"></span></div>
               <p style="margin:0 0 16px;font-size:16px;line-height:1.5">Hi ${escapeHtml(input.signerName)},</p>
               <p style="margin:0 0 16px;font-size:16px;line-height:1.5">
                 You've been asked to review and sign
