@@ -16,7 +16,11 @@
     "prisma:migrate": "prisma migrate deploy",
     "prisma:migrate:dev": "prisma migrate dev",
     "heroku-postbuild": "prisma generate && tsc -p tsconfig.json",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:migrate:test": "DATABASE_URL=postgresql://postgres:postgres@localhost:5433/inkpath_test prisma migrate deploy",
     "test": "vitest run",
+    "test:db": "npm run db:migrate:test && DATABASE_URL=postgresql://postgres:postgres@localhost:5433/inkpath_test RUN_DB_TESTS=1 vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -26,6 +30,7 @@
     "dotenv": "^16.4.7",
     "fastify": "^5.2.1",
     "jsforce": "^3.6.4",
+    "nodemailer": "^6.9.16",
     "pdf-lib": "^1.17.1",
     "pino": "^9.6.0",
     "prisma": "^6.2.1",
@@ -33,6 +38,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
+    "@types/nodemailer": "^6.4.17",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"

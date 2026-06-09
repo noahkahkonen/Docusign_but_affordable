@@ -63,7 +63,7 @@ linkage via `Source_Record_Id__c` + `Source_Object_Type__c`).
 
 ## Local development
 
-Prerequisites: Node 22.x, a local Postgres.
+Prerequisites: Node 22.x, and Postgres — either a native install or Docker (see below).
 
 ```bash
 cp .env.example .env          # then fill in DATABASE_URL and (optionally) Salesforce creds
@@ -71,6 +71,22 @@ npm install
 npm run prisma:migrate:dev    # apply the schema to your DB
 npm run dev                   # http://localhost:3000/health
 ```
+
+### Postgres via Docker + the DB-backed tests
+
+`docker-compose.yml` provisions the same Postgres 16 CI uses, with both the `inkpath` and
+`inkpath_test` databases. It publishes on host port **5433** so it won't collide with a native
+Postgres already on 5432.
+
+```bash
+npm run db:up                 # start Postgres (docker compose up -d db)
+npm run test:db               # migrate inkpath_test + run the suite with RUN_DB_TESTS=1
+npm run db:down               # stop (add `-v` via `docker compose down -v` to wipe data)
+```
+
+The DB-backed integration tests (signing flow, Salesforce write-back, email delivery) are gated on
+`RUN_DB_TESTS=1`; plain `npm test` skips them. The email test mocks SMTP at the nodemailer boundary,
+so no mail leaves your machine.
 
 ### Environment variables
 See `.env.example` for the full contract. Key ones:
@@ -83,7 +99,8 @@ See `.env.example` for the full contract. Key ones:
 | `SF_CLIENT_ID` | Connected App consumer key |
 | `SF_USERNAME` | Integration user to impersonate (JWT bearer) |
 | `SF_PRIVATE_KEY` | PEM key matching the Connected App cert (`\n` escapes ok) |
-| `BRAND_*` | Light/emerald branding — name, color (`#10b981`), logo, sender |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` | SMTP relay for emailing signing links (SES/SendGrid/Mailgun/Postmark/plain SMTP). Unset ⇒ email disabled, links returned in the `/send` response for manual delivery |
+| `BRAND_*` | Light/emerald branding — name, color (`#10b981`), logo, sender (also the email From) |
 
 Secrets come from the environment only and are never committed.
 
@@ -125,7 +142,8 @@ Salesforce Named Credential will present in M4):
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `POST` | `/api/requests` | create a DRAFT from a Salesforce file + signers + field placements |
-| `POST` | `/api/requests/:id/send` | mint per-signer access tokens, return signing links |
+| `POST` | `/api/requests/:id/send` | mint per-signer access tokens, email each signer their link, return links |
+| `POST` | `/api/requests/:id/resend` | re-mint links for unsigned signers and re-email them (missed/expired) |
 | `GET` | `/api/requests/:id` | sender status view incl. the full audit trail |
 | `POST` | `/api/requests/:id/writeback` | retry the Salesforce write-back |
 | `GET` | `/api/requests/:id/signed` | download the flattened signed PDF |
@@ -236,9 +254,9 @@ documents**, not for real executed instruments, until these are closed:
   is *not* yet implemented). Retention is also not durable: blobs live only in one Heroku Postgres
   instance and `audit_events` cascade-delete with the request. Planned: object storage + envelope
   encryption, durable retention, append-only audit.
-- **No real signer identity verification or email delivery.** Auth is *possession of the link*; the
-  backend returns links rather than emailing them, and OTP is scaffolded but not wired. "Verified
-  email" is aspirational until email-OTP lands.
+- **No real signer identity verification.** Signing links are now emailed over SMTP (and still
+  returned in the `/send` response as a fallback), but auth remains *possession of the link* — email
+  OTP is scaffolded, not wired, so "verified email" is aspirational until email-OTP lands.
 - **Other hardening:** lock down CORS (currently reflects any origin), de-dupe `LINK_OPENED` audit
   events, handle rotated PDF pages and 6+ signer auto-placement overlap, `trustProxy: 1` for accurate
   audit IPs, and add route-level/decline/expiry integration tests.

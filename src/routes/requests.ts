@@ -4,6 +4,7 @@ import { registerApiKeyGuard } from "../lib/api-key-guard.js";
 import {
   createSignatureRequest,
   sendSignatureRequest,
+  resendSignatureRequest,
   getRequestStatus,
   getSignedPdf,
   getCertificatePdf,
@@ -63,6 +64,13 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
   app.post("/api/requests/:id/send", async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const links = await sendSignatureRequest(id);
+    return { requestId: id, links };
+  });
+
+  // Re-mint links for unsigned signers and re-email them (missed/expired invitation).
+  app.post("/api/requests/:id/resend", async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const links = await resendSignatureRequest(id);
     return { requestId: id, links };
   });
 

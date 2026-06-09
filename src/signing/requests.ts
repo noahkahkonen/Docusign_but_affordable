@@ -10,6 +10,7 @@ import { consentDisclosure } from "./consent.js";
 import { flattenFields, getPageLayouts, type FieldPlacement } from "./pdf.js";
 import { autoPlaceFields, type AutoFieldRequest } from "./layout.js";
 import { generateCertificate, attemptWriteback } from "./writeback.js";
+import { sendSigningInvitations } from "./notifications.js";
 
 /**
  * Signature request lifecycle: create (draft) -> send (mint tokens) -> per-signer open/consent/
@@ -196,6 +197,66 @@ export async function sendSignatureRequest(requestId: string): Promise<SigningLi
   });
 
   logger.info({ requestId, signers: links.length }, "Signature request sent");
+
+  // Email each signer their link. Best-effort: a delivery failure must not undo the SENT state or
+  // fail this call — the links are returned below for manual delivery / a later /resend.
+  try {
+    await sendSigningInvitations(requestId, links);
+  } catch (err) {
+    logger.error({ requestId, err }, "Signing invitations could not be sent");
+  }
+
+  return links;
+}
+
+/**
+ * Re-mint each unsigned signer's token and email a fresh signing link. Used when an invitation was
+ * missed or the original link expired. Only signers who haven't SIGNED/DECLINED are refreshed; the
+ * raw token is never recoverable (only its hash is stored), so a "resend" is necessarily a new link
+ * — any previously sent link for that signer stops working.
+ */
+export async function resendSignatureRequest(requestId: string): Promise<SigningLink[]> {
+  const request = await prisma.signatureRequest.findUnique({
+    where: { id: requestId },
+    include: { signers: true },
+  });
+  if (!request) throw new Error(`Signature request ${requestId} not found`);
+  if (request.status !== "SENT" && request.status !== "PARTIALLY_SIGNED") {
+    const err = new Error(`Request ${requestId} is ${request.status}; only SENT/PARTIALLY_SIGNED can be resent`);
+    (err as { statusCode?: number }).statusCode = 409;
+    throw err;
+  }
+
+  const pending = request.signers.filter((s) => s.status !== "SIGNED" && s.status !== "DECLINED");
+  if (pending.length === 0) return [];
+
+  const links: SigningLink[] = [];
+  await prisma.$transaction(async (tx) => {
+    for (const signer of pending) {
+      const { token, tokenHash } = issueToken();
+      await tx.signer.update({
+        where: { id: signer.id },
+        data: {
+          accessTokenHash: tokenHash,
+          tokenExpiresAt: expiryFromNow(env.SIGNING_LINK_TTL_HOURS),
+        },
+      });
+      links.push({
+        signerId: signer.id,
+        name: signer.name,
+        email: signer.email,
+        url: `${env.APP_BASE_URL}/sign/${token}`,
+      });
+    }
+  });
+
+  try {
+    await sendSigningInvitations(requestId, links);
+  } catch (err) {
+    logger.error({ requestId, err }, "Resent signing invitations could not be sent");
+  }
+
+  logger.info({ requestId, signers: links.length }, "Signature request resent");
   return links;
 }
 

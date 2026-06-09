@@ -1,0 +1,33 @@
+# Local Postgres for development and the DB-backed integration tests. Mirrors the throwaway
+# Postgres CI spins up (postgres:16, same credentials), so `RUN_DB_TESTS=1 npm test` behaves
+# identically on a laptop and in the pipeline.
+#
+#   docker compose up -d db      # start
+#   npm run test:db              # migrate the test DB + run the suite with DB tests enabled
+#   docker compose down          # stop (add -v to wipe data)
+#
+# Published on host port 5433 (not 5432) on purpose: many machines already run a native Postgres
+# on 5432, and it would shadow this container for localhost connections. The npm db:* scripts and
+# the recommended DATABASE_URL below all target 5433. (CI doesn't use this file — it runs its own
+# Postgres service on 5432 and sets DATABASE_URL itself.)
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: inkpath
+    ports:
+      - "5433:5432"
+    # Create the separate test database (test/setup.ts defaults to inkpath_test) on first boot.
+    volumes:
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+      - inkpath_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  inkpath_pgdata:

@@ -39,6 +39,16 @@ const schema = z.object({
   // Signer access tokens: how long a signing link stays valid.
   SIGNING_LINK_TTL_HOURS: z.coerce.number().int().positive().default(168), // 7 days
 
+  // --- Email delivery (SMTP) ---
+  // Provider-agnostic SMTP relay used to email signing links. Works with Amazon SES, SendGrid,
+  // Mailgun, Postmark, or a plain SMTP server. If SMTP_HOST is unset, email is disabled and the
+  // /send call still succeeds (links are returned in the response for manual delivery).
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z.coerce.boolean().default(false), // true for port 465 (implicit TLS); false uses STARTTLS
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
+
   // Shared secret guarding the sender/admin API (create/send requests). The Salesforce side
   // presents this via the Named Credential. If unset (dev only), the guard is disabled and a
   // warning is logged at boot.
@@ -97,4 +107,12 @@ export const env = {
  */
 export function hasSalesforceCredentials(): boolean {
   return Boolean(env.SF_CLIENT_ID && env.SF_USERNAME && env.SF_PRIVATE_KEY);
+}
+
+/**
+ * True only when an SMTP relay is configured. Routes/services that email signers check this so
+ * the app still sends requests (returning links for manual delivery) when email isn't wired up.
+ */
+export function hasEmailCredentials(): boolean {
+  return Boolean(env.SMTP_HOST);
 }
