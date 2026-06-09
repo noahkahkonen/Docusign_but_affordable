@@ -388,16 +388,48 @@
       }
 
       /* ---------- Signature capture ---------- */
+      const SIG_SS = 3; // supersample the pad so signatures stay crisp when embedded in the PDF
       let sigMode = "draw", drawing = false, hasInk = false, sctx = null;
       function openSignature(f) {
         state.activeFieldId = f.id;
         $("sigTitle").textContent = f.type === "INITIALS" ? "Add your initials" : "Add your signature";
         $("sigOverlay").classList.remove("hidden");
         const c = $("sigpad");
-        c.width = c.clientWidth; c.height = c.clientHeight;
+        // Backing store at SIG_SS×; draw in CSS pixels via the transform. Cleared each open.
+        c.width = Math.round(c.clientWidth * SIG_SS);
+        c.height = Math.round(c.clientHeight * SIG_SS);
         sctx = c.getContext("2d");
-        sctx.lineWidth = 2.4; sctx.lineCap = "round"; sctx.strokeStyle = "#0f172a";
+        sctx.setTransform(SIG_SS, 0, 0, SIG_SS, 0, 0);
+        sctx.lineWidth = 2.6; sctx.lineCap = "round"; sctx.lineJoin = "round"; sctx.strokeStyle = "#0f172a";
         hasInk = false;
+      }
+
+      // Crop a canvas to the bounding box of its non-transparent pixels (+ padding) and return a
+      // data URL. This removes the whitespace around a drawn/typed signature so it FILLS its field
+      // box instead of shrinking to a tiny mark in the middle.
+      function trimToInk(canvas, pad) {
+        const ctx = canvas.getContext("2d");
+        const w = canvas.width, h = canvas.height;
+        let data;
+        try { data = ctx.getImageData(0, 0, w, h).data; } catch (e) { return canvas.toDataURL("image/png"); }
+        let minX = w, minY = h, maxX = -1, maxY = -1;
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            if (data[(y * w + x) * 4 + 3] > 12) {
+              if (x < minX) minX = x; if (x > maxX) maxX = x;
+              if (y < minY) minY = y; if (y > maxY) maxY = y;
+            }
+          }
+        }
+        if (maxX < minX) return canvas.toDataURL("image/png"); // nothing drawn
+        pad = pad || 8;
+        minX = Math.max(0, minX - pad); minY = Math.max(0, minY - pad);
+        maxX = Math.min(w - 1, maxX + pad); maxY = Math.min(h - 1, maxY + pad);
+        const cw = maxX - minX + 1, ch = maxY - minY + 1;
+        const out = document.createElement("canvas");
+        out.width = cw; out.height = ch;
+        out.getContext("2d").drawImage(canvas, minX, minY, cw, ch, 0, 0, cw, ch);
+        return out.toDataURL("image/png");
       }
       function pos(e, c) {
         const r = c.getBoundingClientRect();
@@ -434,7 +466,7 @@
         let dataUrl = null;
         if (sigMode === "draw") {
           if (!hasInk) return alert("Please draw your signature first.");
-          dataUrl = $("sigpad").toDataURL("image/png");
+          dataUrl = trimToInk($("sigpad"), 10);
         } else {
           const name = $("typedInput").value.trim();
           if (!name) return alert("Please type your name.");
@@ -452,14 +484,24 @@
         updateProgress();
       }
 
+      // Render a typed name into a canvas sized TIGHTLY to the text (no big margins) and
+      // supersampled, so it fills the field box and stays sharp.
       function renderTyped(name) {
+        const SS = 3, fontPx = 84, padX = 14, padY = 10;
+        const font = `${fontPx}px "Snell Roundhand", "Segoe Script", "Brush Script MT", cursive`;
+        const measure = document.createElement("canvas").getContext("2d");
+        measure.font = font;
+        const textW = Math.max(20, Math.ceil(measure.measureText(name).width));
+        const w = textW + padX * 2;
+        const h = Math.ceil(fontPx * 1.4) + padY * 2;
         const c = document.createElement("canvas");
-        c.width = 600; c.height = 200;
+        c.width = w * SS; c.height = h * SS;
         const x = c.getContext("2d");
+        x.setTransform(SS, 0, 0, SS, 0, 0);
         x.fillStyle = "#0f172a";
-        x.font = '64px "Snell Roundhand", "Segoe Script", cursive';
+        x.font = font;
         x.textBaseline = "middle";
-        x.fillText(name, 20, 110);
+        x.fillText(name, padX, h / 2);
         return c.toDataURL("image/png");
       }
 
