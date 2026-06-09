@@ -1,0 +1,241 @@
+// InkPath data model.
+// Design notes (from M1 requirements discussion):
+//  - A SignatureRequest is the "envelope": one source document from one Salesforce record.
+//  - Signers are INDEPENDENT and PARALLEL by default (no enforced buyer->seller->broker
+//    sequence). `routingOrder` is nullable and reserved for an optional future sequential mode.
+//  - Multiple signers can represent one entity (e.g. two officers signing for one LLC);
+//    `entityLabel` groups them for display ("Acme LLC — Buyer").
+//  - Fields are flexible: signature/initials/date AND free-text (e.g. a "Title" box where a
+//    signer types "CEO"). Each field is assigned to exactly one signer.
+//  - Every meaningful action is recorded as an immutable AuditEvent for ESIGN/UETA evidence.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RequestStatus {
+  DRAFT
+  SENT
+  PARTIALLY_SIGNED
+  COMPLETED
+  DECLINED
+  VOIDED
+}
+
+enum SignerStatus {
+  PENDING
+  VIEWED
+  CONSENTED
+  SIGNED
+  DECLINED
+}
+
+enum AuthMethod {
+  EMAIL_LINK
+  EMAIL_OTP
+  SMS_OTP
+}
+
+enum FieldType {
+  SIGNATURE
+  INITIALS
+  DATE
+  TEXT
+}
+
+// The party a signer plays on a deal. Templates + routing rules are defined against roles (not
+// named people); a role resolves to a real Contact at send time via the Deal's party fields.
+// OTHER covers ad-hoc signers on custom documents that don't map to a CRE party.
+enum SignerRole {
+  BUYER
+  SELLER
+  TENANT
+  LANDLORD
+  OTHER
+}
+
+enum AuditEventType {
+  REQUEST_CREATED
+  REQUEST_SENT
+  EMAIL_DELIVERED
+  LINK_OPENED
+  CONSENT_GIVEN
+  DOCUMENT_VIEWED
+  FIELD_FILLED
+  SIGNED
+  DECLINED
+  COMPLETED
+  WRITEBACK_SUCCEEDED
+  WRITEBACK_FAILED
+  VOIDED
+}
+
+model SignatureRequest {
+  id        String @id @default(uuid()) @db.Uuid
+
+  // Salesforce linkage
+  salesforceRecordId       String  @map("salesforce_record_id")        // e.g. an Opportunity / TTL_Core__Deal__c Id
+  salesforceObjectType     String  @map("salesforce_object_type")       // e.g. "Opportunity", "TTL_Core__Deal__c"
+  salesforceRecordType     String? @map("salesforce_record_type")       // Deal RecordType DeveloperName used for routing (e.g. "Seller_Rep")
+  originalContentVersionId String  @map("original_content_version_id")  // ContentVersion.Id of the source PDF
+  salesforceRequestRecordId String? @map("salesforce_request_record_id") // Signature_Request__c.Id once mirrored
+
+  documentName String  @map("document_name")
+  documentType String? @map("document_type") // stable key for template matching (e.g. "agency-disclosure")
+
+  status RequestStatus @default(DRAFT)
+
+  // Sender "prepare" access: a high-entropy token (only its SHA-256 hash is stored) that lets the
+  // sender open the browser-based field-placement page for a DRAFT without holding the backend API
+  // key. Ignored once the request leaves DRAFT.
+  prepareTokenHash      String?   @map("prepare_token_hash")
+  prepareTokenExpiresAt DateTime? @map("prepare_token_expires_at")
+
+  // Tamper-evidence
+  docHashOriginal String? @map("doc_hash_original") // SHA-256 hex of the source PDF bytes
+  docHashFinal    String? @map("doc_hash_final")    // SHA-256 hex of the flattened signed PDF
+
+  // Encrypted PDF storage lives out-of-band; for v1 we keep bytes in Postgres (swappable to S3).
+  originalPdf Bytes?  @map("original_pdf")
+  signedPdf   Bytes?  @map("signed_pdf")
+  certificatePdf Bytes? @map("certificate_pdf")
+
+  createdAt   DateTime  @default(now()) @map("created_at")
+  sentAt      DateTime? @map("sent_at")
+  completedAt DateTime? @map("completed_at")
+
+  signers     Signer[]
+  fields      Field[]
+  auditEvents AuditEvent[]
+
+  @@index([salesforceRecordId])
+  @@index([status])
+  @@map("signature_requests")
+}
+
+model Signer {
+  id        String @id @default(uuid()) @db.Uuid
+  requestId String @map("request_id") @db.Uuid
+  request   SignatureRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  name        String
+  email       String
+  entityLabel String? @map("entity_label") // groups multiple signers under one party, e.g. "Acme LLC — Buyer"
+  role        SignerRole? // BUYER/SELLER/TENANT/LANDLORD on CRE deals; null/OTHER for ad-hoc signers
+
+  routingOrder Int?       @map("routing_order") // null => parallel (default). Reserved for future sequential mode.
+  authMethod   AuthMethod @default(EMAIL_LINK) @map("auth_method")
+  status       SignerStatus @default(PENDING)
+
+  // Single-use tokenized access (the token VALUE is never stored — only its SHA-256 hash).
+  accessTokenHash String?   @map("access_token_hash")
+  tokenExpiresAt  DateTime? @map("token_expires_at")
+
+  // ESIGN/UETA consent capture
+  consentText      String?   @map("consent_text")      // exact disclosure text the signer agreed to
+  consentVersion   String?   @map("consent_version")   // version id of that disclosure
+  consentedAt      DateTime? @map("consented_at")
+  consentIp        String?   @map("consent_ip")
+  consentUserAgent String?   @map("consent_user_agent")
+
+  signedAt DateTime? @map("signed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  fields      Field[]
+  auditEvents AuditEvent[]
+
+  @@index([requestId])
+  @@index([accessTokenHash])
+  @@map("signers")
+}
+
+model Field {
+  id        String @id @default(uuid()) @db.Uuid
+  requestId String @map("request_id") @db.Uuid
+  request   SignatureRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  signerId  String @map("signer_id") @db.Uuid
+  signer    Signer @relation(fields: [signerId], references: [id], onDelete: Cascade)
+
+  type     FieldType
+  label    String?   // e.g. "Title", "Date"
+  required Boolean   @default(true)
+
+  // Placement, normalized to the PDF page coordinate system (points). pageIndex is 0-based.
+  pageIndex Int    @map("page_index")
+  x         Float
+  y         Float
+  width     Float
+  height    Float
+
+  // Filled at signing time. For SIGNATURE/INITIALS this holds a data URL or storage ref;
+  // for DATE/TEXT it holds the literal string the signer entered/confirmed.
+  value String?
+
+  @@index([requestId])
+  @@index([signerId])
+  @@map("fields")
+}
+
+model AuditEvent {
+  id        String @id @default(uuid()) @db.Uuid
+  requestId String @map("request_id") @db.Uuid
+  request   SignatureRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  signerId  String? @map("signer_id") @db.Uuid
+  signer    Signer? @relation(fields: [signerId], references: [id], onDelete: SetNull)
+
+  eventType  AuditEventType @map("event_type")
+  authMethod AuthMethod?    @map("auth_method")
+  ipAddress  String?        @map("ip_address")
+  userAgent  String?        @map("user_agent")
+  metadata   Json?          // free-form extra context (field id, hash, error detail, etc.)
+
+  occurredAt DateTime @default(now()) @map("occurred_at")
+
+  @@index([requestId])
+  @@index([signerId])
+  @@map("audit_events")
+}
+
+// A reusable field layout for a recurring document. Fields are keyed by ROLE (not a named
+// signer), so a saved template re-applies to whoever plays that role on the next deal. autoSend
+// is reserved for Phase 4 (trusted templates that send without a review step).
+model Template {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  documentType String?  @map("document_type") // grouping/match label, e.g. "Agency Disclosure"
+  autoSend     Boolean  @default(false) @map("auto_send")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  fields TemplateField[]
+
+  @@index([documentType])
+  @@map("templates")
+}
+
+model TemplateField {
+  id         String   @id @default(uuid()) @db.Uuid
+  templateId String   @map("template_id") @db.Uuid
+  template   Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  role     SignerRole
+  type     FieldType
+  label    String?
+  required Boolean  @default(true)
+
+  pageIndex Int   @map("page_index")
+  x         Float
+  y         Float
+  width     Float
+  height    Float
+
+  @@index([templateId])
+  @@map("template_fields")
+}

@@ -1,0 +1,14 @@
+/* Light, simple, inviting — emerald accent to match the InkPath portal. */
+.inkpath {
+  --inkpath-brand: #10b981;
+}
+
+.inkpath .signer-card {
+  border-left: 3px solid var(--inkpath-brand);
+  background: color-mix(in srgb, var(--inkpath-brand) 4%, white);
+}
+
+.inkpath lightning-button[variant="brand"] {
+  --slds-c-button-brand-color-background: var(--inkpath-brand);
+  --slds-c-button-brand-color-border: var(--inkpath-brand);
+}

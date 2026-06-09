@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Example record-page Quick Action wiring the LWC onto Opportunity. Duplicate this file for other
+  objects (Account, TTL_Core__Deal__c, etc.) by changing the filename prefix, then add the action
+  to that object's page layout / Lightning record page. The LWC also works as a standalone
+  component you can drag onto a Lightning record page.
+-->
+<QuickAction xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>Send for Signature</label>
+    <type>LightningComponent</type>
+    <lightningComponent>c:sendForSignature</lightningComponent>
+    <optionsCreateFeedItem>false</optionsCreateFeedItem>
+    <height>600</height>
+</QuickAction>

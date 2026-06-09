@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Grants a CRE user everything needed to use "Send for Signature":
+   - Apex access to InkPathController
+   - access to the InkPath_Backend external-credential principal (to make the callout)
+   - read/edit on the Signature_Request__c tracking object
+  Assign this permission set to users who should be able to send documents for signature.
+-->
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>InkPath User</label>
+    <hasActivationRequired>false</hasActivationRequired>
+    <description>Use InkPath to send records' files for e-signature.</description>
+
+    <classAccesses>
+        <apexClass>InkPathController</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+
+    <externalCredentialPrincipalAccesses>
+        <enabled>true</enabled>
+        <externalCredentialPrincipal>InkPath_Backend-InkPathPrincipal</externalCredentialPrincipal>
+    </externalCredentialPrincipalAccesses>
+
+    <objectPermissions>
+        <object>Signature_Request__c</object>
+        <allowCreate>true</allowCreate>
+        <allowRead>true</allowRead>
+        <allowEdit>true</allowEdit>
+        <allowDelete>false</allowDelete>
+        <viewAllRecords>false</viewAllRecords>
+        <modifyAllRecords>false</modifyAllRecords>
+    </objectPermissions>
+
+    <!-- Field-level security so InkPath users can actually read the tracking fields. -->
+    <fieldPermissions>
+        <field>Signature_Request__c.Backend_Request_Id__c</field>
+        <readable>true</readable>
+        <editable>false</editable>
+    </fieldPermissions>
+    <!-- Status__c is a universally-required field, so FLS can't be declared for it here
+         (it's implicitly readable/editable wherever the object is accessible). -->
+    <fieldPermissions>
+        <field>Signature_Request__c.Document_Name__c</field>
+        <readable>true</readable>
+        <editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>Signature_Request__c.Source_Record_Id__c</field>
+        <readable>true</readable>
+        <editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>Signature_Request__c.Source_Object_Type__c</field>
+        <readable>true</readable>
+        <editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>Signature_Request__c.Sent_Date__c</field>
+        <readable>true</readable>
+        <editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>Signature_Request__c.Completed_Date__c</field>
+        <readable>true</readable>
+        <editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>Signature_Request__c.Signer_Summary__c</field>
+        <readable>true</readable>
+        <editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>Signature_Request__c.Original_Document_Hash__c</field>
+        <readable>true</readable>
+        <editable>false</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>Signature_Request__c.Final_Document_Hash__c</field>
+        <readable>true</readable>
+        <editable>false</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>Signature_Request__c.Signed_Document_Id__c</field>
+        <readable>true</readable>
+        <editable>false</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>Signature_Request__c.Certificate_Document_Id__c</field>
+        <readable>true</readable>
+        <editable>false</editable>
+    </fieldPermissions>
+</PermissionSet>

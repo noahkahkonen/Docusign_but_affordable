@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Backend_Request_Id__c</fullName>
+    <description>UUID of the corresponding signature_requests row in the InkPath backend.</description>
+    <externalId>true</externalId>
+    <label>Backend Request Id</label>
+    <length>36</length>
+    <required>false</required>
+    <type>Text</type>
+    <unique>true</unique>
+</CustomField>

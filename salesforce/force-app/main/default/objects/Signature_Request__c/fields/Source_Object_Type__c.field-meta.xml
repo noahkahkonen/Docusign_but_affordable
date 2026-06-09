@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Source_Object_Type__c</fullName>
+    <description>API name of the originating object, e.g. Opportunity or TTL_Core__Deal__c.</description>
+    <label>Source Object Type</label>
+    <length>80</length>
+    <required>false</required>
+    <type>Text</type>
+</CustomField>
