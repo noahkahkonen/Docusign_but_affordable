@@ -11,9 +11,9 @@ import type { DealParties, PartyContact } from "../salesforce/deal.js";
  *                      (covers "I represent the seller, the buyer is unrepresented, but I still
  *                       send them for signature").
  *
- * DEFAULTS (confirm with Noah): seller/landlord-rep deals send to BOTH sides; buyer/tenant-rep
- * deals send to the client only. To also send the other side on buyer/tenant rep, add an
- * { role: ..., require: false } entry below.
+ * CONFIRMED matrix: seller/landlord-rep deals send to BOTH sides (the other side signs if a
+ * contact exists, even when unrepresented); buyer/tenant-rep deals send to the CLIENT ONLY. To
+ * change a rule, edit the entries below (require:false = "include this side if a contact exists").
  */
 export interface RoleRule {
   role: SignerRole;

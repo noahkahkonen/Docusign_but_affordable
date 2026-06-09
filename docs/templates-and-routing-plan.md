@@ -38,14 +38,14 @@ Party Contact fields (role → field):
 - (client we represent → `TTL_Core__Client_Contact__c`)
 Resolve each to Contact Name + Email via SOQL.
 
-## Routing matrix (DRAFT — confirm with Noah)
+## Routing matrix (CONFIRMED — implemented in src/signing/routing.ts)
 | RecordType | Always signs (client) | Also signs if Contact present |
 |---|---|---|
-| Buyer_Rep / Investment_Sales | Buyer | Seller? (unconfirmed) |
-| Tenant_Rep | Tenant | Landlord? (unconfirmed) |
+| Buyer_Rep / Investment_Sales | Buyer | — (client only) |
+| Tenant_Rep | Tenant | — (client only) |
 | Seller_Rep / Disposition | Seller | **Buyer** (even unrepresented) |
 | Landlord_Rep | Landlord | **Tenant** |
-Open question: for Buyer/Tenant rep, does the other side ever sign?
+Confirmed 2026-06-09: buyer/tenant-rep deals send to the client only.
 
 ## Auto-send (chosen) — safety design
 Auto-send is opted into PER TEMPLATE, and only after the template is validated:
