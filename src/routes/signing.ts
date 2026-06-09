@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   getSignerContext,
   getSignerDocument,
+  getSignedDocumentForToken,
   recordSignerConsent,
   submitSignerFields,
   declineSignature,
@@ -43,6 +44,19 @@ export async function signingRoutes(app: FastifyInstance): Promise<void> {
     reply.header("Content-Type", "application/pdf");
     reply.header("Content-Disposition", "inline; filename=document.pdf");
     return reply.send(pdf);
+  });
+
+  // The signer's own copy of the finished, flattened signed PDF (once COMPLETED). Forces a
+  // download (attachment) so signers can keep it for their records.
+  app.get("/api/sign/:token/signed", async (req, reply) => {
+    const { token } = tokenParams.parse(req.params);
+    const doc = await getSignedDocumentForToken(token);
+    reply.header("Content-Type", "application/pdf");
+    reply.header(
+      "Content-Disposition",
+      `attachment; filename="${encodeURIComponent(doc.name)}-signed.pdf"`,
+    );
+    return reply.send(doc.bytes);
   });
 
   // Affirmative ESIGN/UETA consent. Must happen before submit.

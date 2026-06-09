@@ -351,6 +351,23 @@ export async function getSignerDocument(token: string): Promise<Buffer> {
   return Buffer.from(signer.request.originalPdf);
 }
 
+/**
+ * The flattened signed PDF for a signer's token, once the whole request is COMPLETED. Lets a
+ * signer download their own copy for their records without exposing the sender API key. Returns
+ * a 409 until completion (the signed/flattened PDF only exists once every signer has signed).
+ */
+export async function getSignedDocumentForToken(
+  token: string,
+): Promise<{ name: string; bytes: Buffer }> {
+  const signer = await resolveSigner(token);
+  if (signer.request.status !== "COMPLETED" || !signer.request.signedPdf) {
+    const err = new Error("The signed document isn't ready yet.");
+    (err as { statusCode?: number }).statusCode = 409;
+    throw err;
+  }
+  return { name: signer.request.documentName, bytes: Buffer.from(signer.request.signedPdf) };
+}
+
 /** Record the signer's affirmative ESIGN/UETA consent. Must precede signing. */
 export async function recordSignerConsent(token: string, ctx: RequestContext) {
   const signer = await resolveSigner(token);
