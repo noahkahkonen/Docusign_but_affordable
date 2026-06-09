@@ -18,6 +18,9 @@ function getTransport(): Transporter | null {
       host: env.SMTP_HOST,
       port: env.SMTP_PORT,
       secure: env.SMTP_SECURE,
+      // When not using implicit TLS (e.g. Gmail on 587), require a STARTTLS upgrade so we never
+      // send AUTH credentials over a plaintext connection.
+      requireTLS: !env.SMTP_SECURE,
       // Auth is optional: some internal relays accept mail without credentials.
       auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
     });

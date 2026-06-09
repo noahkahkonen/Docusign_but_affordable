@@ -45,7 +45,13 @@ const schema = z.object({
   // /send call still succeeds (links are returned in the response for manual delivery).
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
-  SMTP_SECURE: z.coerce.boolean().default(false), // true for port 465 (implicit TLS); false uses STARTTLS
+  // true for port 465 (implicit TLS); false (default) uses STARTTLS, e.g. Gmail on 587.
+  // NB: do NOT use z.coerce.boolean() here — Boolean("false") is true, so the string "false"
+  // would enable implicit TLS and break STARTTLS connections. Parse the string explicitly.
+  SMTP_SECURE: z
+    .string()
+    .optional()
+    .transform((v) => /^(1|true|yes|on)$/i.test((v ?? "").trim())),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
 
