@@ -33,6 +33,28 @@ export interface SaveTemplateOptions {
   autoSend?: boolean; // mark trusted so the docgen flow sends without review
 }
 
+/** Tolerance (PDF points) when comparing page sizes / bounds — absorbs float noise, not layout drift. */
+const GEOMETRY_EPSILON = 1;
+
+type PageSize = { w: number; h: number };
+
+function pageSizesOf(layouts: { width: number; height: number }[]): PageSize[] {
+  return layouts.map((l) => ({ w: l.width, h: l.height }));
+}
+
+/** True when a field rectangle lies (within epsilon) inside its page. */
+function fieldOnPage(
+  f: { x: number; y: number; width: number; height: number },
+  page: { width: number; height: number },
+): boolean {
+  return (
+    f.x >= -GEOMETRY_EPSILON &&
+    f.y >= -GEOMETRY_EPSILON &&
+    f.x + f.width <= page.width + GEOMETRY_EPSILON &&
+    f.y + f.height <= page.height + GEOMETRY_EPSILON
+  );
+}
+
 /** Save the supplied role-keyed placements as a new named template (labelled by the draft's doc). */
 export async function saveTemplateFromDraft(
   token: string,
@@ -43,11 +65,26 @@ export async function saveTemplateFromDraft(
   const request = await resolvePrepareToken(token);
   if (fields.length === 0) throw httpError(400, "Place at least one field before saving a template.");
 
+  // Validate placements against the source document's real geometry, and capture that geometry
+  // on the template so auto-send can later refuse to apply it to a different document.
+  const layouts = request.originalPdf ? await getPageLayouts(Buffer.from(request.originalPdf)) : [];
+  for (const f of fields) {
+    const page = layouts[f.pageIndex];
+    if (!page) {
+      throw httpError(422, `Field references page ${f.pageIndex + 1} but the document has ${layouts.length} page(s).`);
+    }
+    if (!fieldOnPage(f, page)) {
+      throw httpError(422, `A ${f.type} field for ${f.role} lies outside page ${f.pageIndex + 1}'s bounds.`);
+    }
+  }
+
   const template = await prisma.template.create({
     data: {
       name,
       documentType: options.documentType ?? request.documentType ?? request.documentName,
       autoSend: options.autoSend ?? false,
+      sourcePageCount: layouts.length || null,
+      sourcePageSizes: layouts.length ? pageSizesOf(layouts) : undefined,
       fields: {
         create: fields.map((f) => ({
           role: f.role,
@@ -87,7 +124,10 @@ export async function listTemplates() {
 export interface ApplyResult {
   applied: number;
   skippedRoles: SignerRole[]; // template roles with no matching signer on this draft
-  skippedOffPage: number; // fields whose page doesn't exist in this document
+  skippedOffPage: number; // fields whose page doesn't exist or whose rect falls outside the page
+  /** Set when geometry matching was required and the target document doesn't match the
+   *  template's source (page count or page sizes differ). Nothing was applied. */
+  geometryMismatch?: boolean;
   fields: Array<{
     signerIndex: number;
     type: FieldType;
@@ -126,10 +166,25 @@ export async function findAutoSendTemplate(documentType: string) {
 }
 
 type RequestWithSigners = { id: string; originalPdf: Uint8Array | null; signers: { id: string; role: SignerRole | null }[] };
-type TemplateWithFields = { fields: { role: SignerRole; type: FieldType; label: string | null; required: boolean; pageIndex: number; x: number; y: number; width: number; height: number }[] };
+type TemplateWithFields = {
+  fields: { role: SignerRole; type: FieldType; label: string | null; required: boolean; pageIndex: number; x: number; y: number; width: number; height: number }[];
+  sourcePageCount?: number | null;
+  sourcePageSizes?: unknown;
+};
+
+export interface ApplyOptions {
+  /** Refuse (apply nothing, set geometryMismatch) unless the target document's page count and
+   *  sizes match the geometry the template was built on. REQUIRED for the no-review auto-send
+   *  path; the manual prepare page may apply loosely since a human reviews the result. */
+  requireGeometryMatch?: boolean;
+}
 
 /** Apply a template by request id (used by the auto-send/from-deal path). */
-export async function applyTemplateToRequestId(requestId: string, templateId: string): Promise<ApplyResult> {
+export async function applyTemplateToRequestId(
+  requestId: string,
+  templateId: string,
+  options: ApplyOptions = {},
+): Promise<ApplyResult> {
   const request = await prisma.signatureRequest.findUniqueOrThrow({
     where: { id: requestId },
     include: { signers: { orderBy: { createdAt: "asc" } } },
@@ -139,14 +194,41 @@ export async function applyTemplateToRequestId(requestId: string, templateId: st
   return applyTemplateToRequest(
     { id: request.id, originalPdf: request.originalPdf ? Buffer.from(request.originalPdf) : null, signers: request.signers },
     template,
+    options,
   );
+}
+
+/** Target document matches the template's recorded source geometry (count + per-page size). */
+function geometryMatches(template: TemplateWithFields, layouts: { width: number; height: number }[]): boolean {
+  if (template.sourcePageCount == null || !Array.isArray(template.sourcePageSizes)) {
+    // Legacy template with no recorded geometry: cannot verify — treat as NOT matching so the
+    // no-review path fails closed (re-save the template to record geometry).
+    return false;
+  }
+  if (template.sourcePageCount !== layouts.length) return false;
+  const sizes = template.sourcePageSizes as Array<{ w?: number; h?: number }>;
+  if (sizes.length !== layouts.length) return false;
+  return layouts.every((page, i) => {
+    const s = sizes[i];
+    return (
+      typeof s?.w === "number" &&
+      typeof s?.h === "number" &&
+      Math.abs(s.w - page.width) <= GEOMETRY_EPSILON &&
+      Math.abs(s.h - page.height) <= GEOMETRY_EPSILON
+    );
+  });
 }
 
 async function applyTemplateToRequest(
   request: RequestWithSigners,
   template: TemplateWithFields,
+  options: ApplyOptions = {},
 ): Promise<ApplyResult> {
   const layouts = request.originalPdf ? await getPageLayouts(Buffer.from(request.originalPdf)) : [];
+
+  if (options.requireGeometryMatch && !geometryMatches(template, layouts)) {
+    return { applied: 0, skippedRoles: [], skippedOffPage: 0, geometryMismatch: true, fields: [] };
+  }
 
   // role -> { signerId, index } using the FIRST signer that plays each role.
   const signerByRole = new Map<SignerRole, { id: string; index: number }>();
@@ -160,7 +242,8 @@ async function applyTemplateToRequest(
   for (const tf of template.fields) {
     const signer = signerByRole.get(tf.role);
     if (!signer) { skippedRoles.add(tf.role); continue; }
-    if (!layouts[tf.pageIndex]) { skippedOffPage += 1; continue; }
+    const page = layouts[tf.pageIndex];
+    if (!page || !fieldOnPage(tf, page)) { skippedOffPage += 1; continue; }
     toCreate.push({ signerId: signer.id, index: signer.index, tf });
   }
 

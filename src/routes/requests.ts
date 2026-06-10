@@ -19,16 +19,21 @@ import { attemptWriteback } from "../signing/writeback.js";
  * via registerApiKeyGuard. In dev with no key set, the guard is disabled and we warn once at boot.
  */
 
+// Coordinates must be finite (z.number() rejects NaN but ACCEPTS Infinity — a poison value that
+// would corrupt the final flatten) and arrays bounded against DB/CPU abuse.
+const coord = z.number().finite();
+const dimension = z.number().finite().positive().max(20000);
+
 const fieldSchema = z.object({
   signerIndex: z.number().int().nonnegative(),
   type: z.enum(["SIGNATURE", "INITIALS", "DATE", "TEXT"]),
   label: z.string().max(255).optional(),
   required: z.boolean().optional(),
   pageIndex: z.number().int().nonnegative(),
-  x: z.number(),
-  y: z.number(),
-  width: z.number().positive(),
-  height: z.number().positive(),
+  x: coord,
+  y: coord,
+  width: dimension,
+  height: dimension,
 });
 
 const fieldType = z.enum(["SIGNATURE", "INITIALS", "DATE", "TEXT"]);
@@ -47,11 +52,12 @@ const createSchema = z.object({
         // CRE party this signer represents; omit for ad-hoc signers on custom documents.
         role: z.enum(["BUYER", "SELLER", "TENANT", "LANDLORD", "OTHER"]).optional(),
         // Field types to auto-place for this signer (the LWC sends these instead of x/y boxes).
-        autoFields: z.array(fieldType).optional(),
+        autoFields: z.array(fieldType).max(10).optional(),
       }),
     )
-    .min(1),
-  fields: z.array(fieldSchema).default([]),
+    .min(1)
+    .max(50),
+  fields: z.array(fieldSchema).max(500).default([]),
   // When true, create an empty DRAFT to be configured in the browser placement page (no fields
   // or autoFields required up front).
   prepare: z.boolean().optional(),

@@ -17,16 +17,20 @@ import { prepareRoutes } from "./routes/prepare.js";
 export async function buildApp() {
   const app = Fastify({
     loggerInstance: logger,
-    // Trust the Heroku router's X-Forwarded-For so req.ip is the real client IP — this is
-    // load-bearing for the audit trail (signer IP capture), not a nicety.
-    trustProxy: true,
+    // Trust exactly ONE proxy hop (the Heroku router) for X-Forwarded-For. `true` would trust
+    // the whole client-supplied chain, letting a signer spoof the IP recorded as ESIGN evidence.
+    trustProxy: 1,
     bodyLimit: 25 * 1024 * 1024, // 25 MB; CRE PDFs can be large
   });
 
   await app.register(sensible);
+  // The portal and prepare pages are served same-origin by this app, and the Salesforce callout
+  // is server-to-server (CORS doesn't apply) — so cross-origin browser access isn't needed at
+  // all. Reflecting any origin WITH credentials (the previous setting) is the canonical CORS
+  // anti-pattern; allow only our own origin, no credentials.
   await app.register(cors, {
-    origin: true, // tightened per-environment once the portal origin is known
-    credentials: true,
+    origin: [new URL(env.APP_BASE_URL).origin],
+    credentials: false,
   });
 
   // Surface validation errors (zod throws) as clean 400s instead of 500s.

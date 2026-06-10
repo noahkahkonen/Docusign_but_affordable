@@ -63,6 +63,7 @@ enum AuditEventType {
   REQUEST_CREATED
   REQUEST_SENT
   EMAIL_DELIVERED
+  EMAIL_FAILED
   LINK_OPENED
   CONSENT_GIVEN
   DOCUMENT_VIEWED
@@ -99,6 +100,12 @@ model SignatureRequest {
   // Tamper-evidence
   docHashOriginal String? @map("doc_hash_original") // SHA-256 hex of the source PDF bytes
   docHashFinal    String? @map("doc_hash_final")    // SHA-256 hex of the flattened signed PDF
+
+  // Write-back idempotency: ContentDocumentIds persisted immediately after each successful upload
+  // so a retry after a partial failure resumes (skips what already landed) instead of creating
+  // duplicate Files on the Salesforce record.
+  signedContentDocumentId      String? @map("signed_content_document_id")
+  certificateContentDocumentId String? @map("certificate_content_document_id")
 
   // Encrypted PDF storage lives out-of-band; for v1 we keep bytes in Postgres (swappable to S3).
   originalPdf Bytes?  @map("original_pdf")
@@ -210,6 +217,14 @@ model Template {
   name         String
   documentType String?  @map("document_type") // grouping/match label, e.g. "Agency Disclosure"
   autoSend     Boolean  @default(false) @map("auto_send")
+
+  // Geometry of the document this template was built on. AUTO-SEND refuses to fire when the
+  // target PDF's page count/sizes don't match: the template selector (documentType) and the
+  // document bytes (contentVersionId) are independent caller inputs, so without this binding a
+  // trusted template could be silently applied to a completely different document and sent for
+  // signature with no human review.
+  sourcePageCount Int?  @map("source_page_count")
+  sourcePageSizes Json? @map("source_page_sizes") // [{ w, h }] per page, PDF points
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")

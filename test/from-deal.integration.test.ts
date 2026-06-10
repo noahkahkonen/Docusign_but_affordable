@@ -87,6 +87,10 @@ describe.runIf(run)("createRequestFromDeal (integration)", () => {
         name: "Agency Disclosure (trusted)",
         documentType: "agency-disclosure",
         autoSend: true,
+        // Auto-send requires the template to be bound to the geometry of the document it was
+        // built on (createSimplePdf produces one 612×792 page) — a mismatch fails closed.
+        sourcePageCount: 1,
+        sourcePageSizes: [{ w: 612, h: 792 }],
         fields: {
           create: [
             { role: "SELLER", type: "SIGNATURE", pageIndex: 0, x: 90, y: 600, width: 200, height: 56, required: true },

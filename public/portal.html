@@ -248,10 +248,13 @@
 
       function showState(msg, glyph, extraHtml) {
         $("actionbar").classList.add("hidden");
+        // msg can carry server error text — set it via textContent so it can never become
+        // markup in the signer's browser. The surrounding chrome is static/own HTML.
         $("wrap").innerHTML =
           `<div class="card pad state"><div class="check">${glyph || "✓"}</div>` +
-          `<h1>${msg}</h1>${extraHtml || ""}<div class="legal">Powered by {{BRAND_NAME}} — electronic signatures ` +
+          `<h1 id="stateMsg"></h1>${extraHtml || ""}<div class="legal">Powered by {{BRAND_NAME}} — electronic signatures ` +
           `aligned with the U.S. ESIGN Act and UETA. This is not legal advice.</div></div>`;
+        $("stateMsg").textContent = msg;
       }
 
       // A "Download signed copy" button — only meaningful once the request is COMPLETED, when the
