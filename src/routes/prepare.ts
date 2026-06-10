@@ -3,6 +3,7 @@ import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { env } from "../config/env.js";
+import { requireApiKey } from "../lib/api-key-guard.js";
 import {
   getPrepareContext,
   getPrepareDocument,
@@ -24,6 +25,12 @@ import {
 const tokenParams = z.object({ token: z.string().min(20).max(200) });
 const fieldType = z.enum(["SIGNATURE", "INITIALS", "DATE", "TEXT"]);
 
+// Coordinates must be finite (z.number() rejects NaN but ACCEPTS Infinity, which would poison
+// the final flatten of a completed request) and arrays bounded (a token holder could otherwise
+// createMany a million rows / melt the flattener).
+const coord = z.number().finite();
+const dimension = z.number().finite().positive().max(20000);
+
 const fieldsSchema = z.object({
   fields: z
     .array(
@@ -33,12 +40,13 @@ const fieldsSchema = z.object({
         label: z.string().max(255).optional(),
         required: z.boolean().optional(),
         pageIndex: z.number().int().nonnegative(),
-        x: z.number(),
-        y: z.number(),
-        width: z.number().positive(),
-        height: z.number().positive(),
+        x: coord,
+        y: coord,
+        width: dimension,
+        height: dimension,
       }),
     )
+    .max(500)
     .default([]),
 });
 
@@ -54,13 +62,14 @@ const roleFieldsSchema = z.object({
         label: z.string().max(255).optional(),
         required: z.boolean().optional(),
         pageIndex: z.number().int().nonnegative(),
-        x: z.number(),
-        y: z.number(),
-        width: z.number().positive(),
-        height: z.number().positive(),
+        x: coord,
+        y: coord,
+        width: dimension,
+        height: dimension,
       }),
     )
-    .min(1),
+    .min(1)
+    .max(200),
 });
 
 const PAGE_PATH = join(process.cwd(), "public", "prepare.html");
@@ -119,9 +128,14 @@ export async function prepareRoutes(app: FastifyInstance): Promise<void> {
     return { templates: await listTemplates() };
   });
 
-  app.post("/api/prepare/:token/templates", async (req) => {
+  app.post("/api/prepare/:token/templates", async (req, reply) => {
     const { token } = tokenParams.parse(req.params);
     const { name, fields, documentType, autoSend } = roleFieldsSchema.parse(req.body);
+    // Marking a template TRUSTED (autoSend) arms the no-review send path for every future
+    // matching document — that authority must not ride on a per-draft prepare token someone
+    // could lift from a browser URL. Require the admin API key for the flag specifically;
+    // ordinary (non-trusted) template saves remain prepare-token-only for the browser page.
+    if (autoSend && !requireApiKey(req, reply)) return reply;
     return saveTemplateFromDraft(token, name, fields, { documentType, autoSend });
   });
 

@@ -240,26 +240,41 @@ Verified against the target org (API **v60.0**): standard Files objects
 
 ## Known limitations — deferred before production
 
-A multi-agent code review (M1–M4) surfaced issues that are intentionally **deferred** until after
-sandbox validation. The current build is suitable for a **sandbox pilot with disposable test
-documents**, not for real executed instruments, until these are closed:
+A multi-agent code review (M1–M4, with a follow-up audit of the templates/auto-send/email surface)
+drives this list. The current build is suitable for a **sandbox pilot with disposable test
+documents**, not for real executed instruments, until the remaining items are closed:
 
+**Fixed by the hardening pass** *(verified by `test/hardening.integration.test.ts` and
+`test/mailer-security.test.ts`)*:
+- ~~Parallel-completion race / non-idempotent write-back~~ — completion is now a single-winner
+  atomic transition under a row lock, and write-back uploads persist their ContentDocumentIds so a
+  retry resumes instead of duplicating Files.
+- ~~Terminal-state guards~~ — a COMPLETED request can no longer be flipped to DECLINED by a stale
+  link, signing/consent are refused on declined/voided requests, and DRAFT→SENT is atomic (no
+  double send invalidating already-emailed links).
+- ~~Email recipient hijack~~ — the To header is built as a structured `{ name, address }` object so
+  a hostile signer *name* can't redirect the signing link; failed deliveries now write an
+  `EMAIL_FAILED` audit event.
+- ~~Unsafe auto-send~~ — trusted templates are bound to the **page geometry of the document they
+  were built on** and auto-send fails closed on any mismatch, partial application, or off-page
+  field; marking a template trusted requires the **admin API key** (not just a prepare link); the
+  `REQUEST_SENT` audit records `origin: AUTO_TEMPLATE` with the template id/name.
+- ~~CORS reflect-any-origin, spoofable audit IPs, token-bearing URLs in logs, LINK_OPENED audit
+  spam, out-of-bounds/Infinity field coordinates, unbounded field arrays~~ — all closed.
+
+**Still open (do not pilot real instruments until addressed):**
 - **Signer links are not yet single-use.** A token stays valid (and the document viewable) until
-  its 7-day expiry even after signing; `decline` has no terminal-state guard. Hardening planned:
-  invalidate the token at terminal state, gate read access, shorten TTL.
-- **Parallel-completion race / non-idempotent write-back.** Two signers completing near-simultaneously
-  could trigger completion twice, and a write-back retry after a partial failure can create duplicate
-  Salesforce Files. Planned: single-winner atomic status transition + idempotent uploads.
+  its 7-day expiry even after signing. Planned: invalidate at terminal state, gate read access,
+  shorten TTL.
 - **Documents and signer PII are stored unencrypted** as Postgres `BYTEA`/text ("encrypted at rest"
   is *not* yet implemented). Retention is also not durable: blobs live only in one Heroku Postgres
   instance and `audit_events` cascade-delete with the request. Planned: object storage + envelope
   encryption, durable retention, append-only audit.
-- **No real signer identity verification.** Signing links are now emailed over SMTP (and still
-  returned in the `/send` response as a fallback), but auth remains *possession of the link* — email
-  OTP is scaffolded, not wired, so "verified email" is aspirational until email-OTP lands.
-- **Other hardening:** lock down CORS (currently reflects any origin), de-dupe `LINK_OPENED` audit
-  events, handle rotated PDF pages and 6+ signer auto-placement overlap, `trustProxy: 1` for accurate
-  audit IPs, and add route-level/decline/expiry integration tests.
+- **No real signer identity verification.** Signing links are emailed over SMTP (and returned in
+  the `/send` response as a fallback), but auth remains *possession of the link* — email OTP is
+  scaffolded, not wired.
+- **Rotated PDF pages** aren't compensated during flattening, and a template maps fields only to
+  the **first** signer per role (co-signers of one entity get none — review in the prepare page).
 
 > ⚖️ Reinforcing the disclaimer above: until the items above are addressed, do not rely on this for
 > legally executed CRE documents. This is not legal advice.

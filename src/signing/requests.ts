@@ -7,9 +7,9 @@ import { downloadFileBytes } from "../salesforce/files.js";
 import { recordAudit } from "./audit.js";
 import { issueToken, hashToken, expiryFromNow } from "./tokens.js";
 import { consentDisclosure } from "./consent.js";
-import { flattenFields, getPageLayouts, type FieldPlacement } from "./pdf.js";
+import { getPageLayouts } from "./pdf.js";
 import { autoPlaceFields, type AutoFieldRequest } from "./layout.js";
-import { generateCertificate, attemptWriteback } from "./writeback.js";
+import { generateCertificate, attemptWriteback, finalizeCompletion } from "./writeback.js";
 import { sendSigningInvitations } from "./notifications.js";
 import { getDealParties } from "../salesforce/deal.js";
 import { computeRouting } from "./routing.js";
@@ -66,6 +66,22 @@ function httpError(status: number, message: string): Error {
   return err;
 }
 
+/**
+ * Reject placements outside the page's media box. pdf-lib does not clip — an out-of-bounds field
+ * silently draws nothing (or garbage) in the flattened output, which for a signature box on a
+ * legal document means a signed PDF missing its signature mark.
+ */
+function assertFieldWithinPage(
+  f: { x: number; y: number; width: number; height: number },
+  page: { width: number; height: number },
+  pageIndex: number,
+): void {
+  const EPS = 1; // PDF points; absorbs float noise only
+  if (f.x < -EPS || f.y < -EPS || f.x + f.width > page.width + EPS || f.y + f.height > page.height + EPS) {
+    throw httpError(422, `A field lies outside page ${pageIndex + 1}'s bounds (${Math.round(page.width)}×${Math.round(page.height)}pt).`);
+  }
+}
+
 /** Create a DRAFT request: pull the source PDF from Salesforce, hash it, persist signers+fields. */
 export async function createSignatureRequest(input: CreateRequestInput) {
   if (input.signers.length === 0) throw new Error("At least one signer is required");
@@ -112,6 +128,7 @@ export async function createSignatureRequest(input: CreateRequestInput) {
     if (f.signerIndex < 0 || f.signerIndex >= input.signers.length) {
       throw new Error(`Field references signer ${f.signerIndex} which does not exist`);
     }
+    assertFieldWithinPage(f, page, f.pageIndex);
   }
 
   return prisma.$transaction(async (tx) => {
@@ -208,21 +225,40 @@ export async function createRequestFromDeal(input: FromDealInput) {
     prepare: true,
   });
 
-  // Auto-send: if a TRUSTED template matches this document type and every required signer
-  // resolved, apply the template's fields and send straight away — no review step. Anything
-  // short of that (no template, untrusted, missing client signer, no fields applied) falls back
-  // to the prepare page.
+  // Auto-send: only when a TRUSTED template matches this document type, every required signer
+  // resolved, the target document's geometry MATCHES the document the template was built on,
+  // and EVERY template field applied cleanly. Auto-send is a no-review path for legally binding
+  // documents, so anything partial — mismatched geometry, off-page/dropped fields, unmatched
+  // roles — fails closed to the human prepare page instead of sending a half-prepared document.
   let sent = false;
   let autoSendNote: string | undefined;
   const template = input.documentType ? await findAutoSendTemplate(input.documentType) : null;
   if (template && routing.missingRequired.length === 0) {
-    const applied = await applyTemplateToRequestId(created.requestId, template.id);
-    if (applied.applied > 0) {
-      await sendSignatureRequest(created.requestId);
+    const applied = await applyTemplateToRequestId(created.requestId, template.id, {
+      requireGeometryMatch: true,
+    });
+    const fullyApplied =
+      applied.applied > 0 &&
+      !applied.geometryMismatch &&
+      applied.skippedOffPage === 0 &&
+      applied.skippedRoles.length === 0;
+
+    if (fullyApplied) {
+      await sendSignatureRequest(created.requestId, {
+        origin: "AUTO_TEMPLATE",
+        templateId: template.id,
+        templateName: template.name,
+        documentType: input.documentType ?? null,
+        recordType: deal.recordType ?? null,
+        fieldsApplied: applied.applied,
+      });
       sent = true;
       autoSendNote = `Auto-sent using template "${template.name}".`;
+    } else if (applied.geometryMismatch) {
+      autoSendNote = `Template "${template.name}" was built on a different document layout (page count/size mismatch); review needed.`;
     } else {
-      autoSendNote = `Template "${template.name}" matched but placed no fields; review needed.`;
+      const dropped = applied.skippedOffPage + applied.skippedRoles.length;
+      autoSendNote = `Template "${template.name}" applied partially (${dropped} field/role(s) could not be placed); review needed.`;
     }
   } else if (template) {
     autoSendNote = `Missing required signer(s): ${routing.missingRequired.join(", ")}; review needed.`;
@@ -246,15 +282,24 @@ export interface SigningLink {
   url: string;
 }
 
-/** Mint a per-signer access token and move the request to SENT. Returns the signing links. */
-export async function sendSignatureRequest(requestId: string): Promise<SigningLink[]> {
+/**
+ * Mint a per-signer access token and move the request to SENT. Returns the signing links.
+ * `sentMeta` is merged into the REQUEST_SENT audit metadata so the evidentiary trail records
+ * HOW the send happened (e.g. AUTO_TEMPLATE with the template id/rule vs. a manual send).
+ */
+export async function sendSignatureRequest(
+  requestId: string,
+  sentMeta?: Record<string, string | number | boolean | null>,
+): Promise<SigningLink[]> {
   const request = await prisma.signatureRequest.findUnique({
     where: { id: requestId },
     include: { signers: true },
   });
   if (!request) throw new Error(`Signature request ${requestId} not found`);
   if (request.status !== "DRAFT") {
-    throw new Error(`Request ${requestId} is ${request.status}, expected DRAFT`);
+    // Fast-path pre-check; the authoritative (race-proof) guard is the conditional
+    // DRAFT→SENT update inside the transaction below.
+    throw httpError(409, `Request ${requestId} was already sent (status ${request.status})`);
   }
 
   // A request with no fields can't be signed — block sending (a draft prepared in the placement
@@ -267,6 +312,17 @@ export async function sendSignatureRequest(requestId: string): Promise<SigningLi
   const links: SigningLink[] = [];
 
   await prisma.$transaction(async (tx) => {
+    // Atomic DRAFT→SENT election. Two concurrent /send calls would otherwise both pass the
+    // status pre-check and mint tokens twice — the second set silently invalidating links the
+    // first call already emailed. Only the caller that wins this conditional update proceeds.
+    const won = await tx.signatureRequest.updateMany({
+      where: { id: requestId, status: "DRAFT" },
+      data: { status: "SENT", sentAt: new Date() },
+    });
+    if (won.count === 0) {
+      throw httpError(409, `Request ${requestId} was already sent`);
+    }
+
     for (const signer of request.signers) {
       const { token, tokenHash } = issueToken();
       await tx.signer.update({
@@ -285,15 +341,10 @@ export async function sendSignatureRequest(requestId: string): Promise<SigningLi
       });
     }
 
-    await tx.signatureRequest.update({
-      where: { id: requestId },
-      data: { status: "SENT", sentAt: new Date() },
-    });
-
     await recordAudit(tx, {
       requestId,
       eventType: "REQUEST_SENT",
-      metadata: { signers: request.signers.length },
+      metadata: { signers: request.signers.length, origin: "MANUAL", ...(sentMeta ?? {}) },
     });
   });
 
@@ -448,13 +499,15 @@ export async function replaceDraftFields(token: string, fields: PlaceFieldInput[
     : [];
 
   for (const f of fields) {
-    if (!layouts[f.pageIndex]) {
+    const page = layouts[f.pageIndex];
+    if (!page) {
       throw httpError(400, `Field references page ${f.pageIndex} but the document has ${layouts.length} pages`);
     }
     if (f.signerIndex < 0 || f.signerIndex >= request.signers.length) {
       throw httpError(400, `Field references signer ${f.signerIndex} which does not exist`);
     }
     if (f.width <= 0 || f.height <= 0) throw httpError(400, "Field width and height must be positive");
+    assertFieldWithinPage(f, page, f.pageIndex);
   }
 
   const signerIds = request.signers.map((s) => s.id);
@@ -515,21 +568,22 @@ export interface RequestContext {
 export async function getSignerContext(token: string, ctx: RequestContext) {
   const signer = await resolveSigner(token);
 
-  // Record the open exactly once per session-ish; we always log LINK_OPENED on fetch and mark
-  // the signer VIEWED if they were merely PENDING.
-  await prisma.$transaction(async (tx) => {
-    await recordAudit(tx, {
-      requestId: signer.requestId,
-      signerId: signer.id,
-      eventType: "LINK_OPENED",
-      authMethod: signer.authMethod,
-      ipAddress: ctx.ip,
-      userAgent: ctx.userAgent,
-    });
-    if (signer.status === "PENDING") {
+  // Record LINK_OPENED only on the FIRST open (the PENDING→VIEWED transition). The portal
+  // refetches this context on refresh/poll; logging every fetch would flood the audit trail —
+  // and the certificate timeline — with duplicate events and dilute the evidentiary record.
+  if (signer.status === "PENDING") {
+    await prisma.$transaction(async (tx) => {
+      await recordAudit(tx, {
+        requestId: signer.requestId,
+        signerId: signer.id,
+        eventType: "LINK_OPENED",
+        authMethod: signer.authMethod,
+        ipAddress: ctx.ip,
+        userAgent: ctx.userAgent,
+      });
       await tx.signer.update({ where: { id: signer.id }, data: { status: "VIEWED" } });
-    }
-  });
+    });
+  }
 
   const fields = await prisma.field.findMany({
     where: { requestId: signer.requestId, signerId: signer.id },
@@ -597,6 +651,10 @@ export async function getSignedDocumentForToken(
 /** Record the signer's affirmative ESIGN/UETA consent. Must precede signing. */
 export async function recordSignerConsent(token: string, ctx: RequestContext) {
   const signer = await resolveSigner(token);
+  const rs = signer.request.status;
+  if (rs === "COMPLETED" || rs === "DECLINED" || rs === "VOIDED") {
+    throw httpError(409, `This document is no longer open for consent (request is ${rs.toLowerCase()}).`);
+  }
   const disclosure = consentDisclosure();
 
   await prisma.$transaction(async (tx) => {
@@ -673,7 +731,24 @@ export async function submitSignerFields(
     }
   }
 
-  await prisma.$transaction(async (tx) => {
+  // Apply the values, mark this signer SIGNED, and decide the request transition — all while
+  // holding a row lock on the request. Without the lock, two final signers submitting at the
+  // same moment is a classic check-then-act race: both could see "someone still unsigned" (each
+  // missing the other's uncommitted update) and the request never completes, or in the inverse
+  // interleaving both could elect completion and write back twice. The lock serializes the
+  // count+transition per request; the guarded updateMany makes exactly one caller the winner.
+  const transition = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM signature_requests WHERE id = ${signer.requestId}::uuid FOR UPDATE`;
+
+    // Re-read status under the lock: a decline/void/completion may have landed since resolve.
+    const fresh = await tx.signatureRequest.findUniqueOrThrow({
+      where: { id: signer.requestId },
+      select: { status: true },
+    });
+    if (fresh.status === "COMPLETED" || fresh.status === "DECLINED" || fresh.status === "VOIDED") {
+      throw httpError(409, `This document can no longer be signed (request is ${fresh.status.toLowerCase()}).`);
+    }
+
     for (const f of myFields) {
       const v = valueByField.get(f.id);
       if (v !== undefined) {
@@ -698,76 +773,51 @@ export async function submitSignerFields(
       ipAddress: ctx.ip,
       userAgent: ctx.userAgent,
     });
-  });
 
-  // Are all signers done?
-  const remaining = await prisma.signer.count({
-    where: { requestId: signer.requestId, status: { not: "SIGNED" } },
-  });
-
-  if (remaining > 0) {
-    await prisma.signatureRequest.update({
-      where: { id: signer.requestId },
-      data: { status: "PARTIALLY_SIGNED" },
+    // In-transaction count (sees this signer's update; the lock guarantees no concurrent writer).
+    const remaining = await tx.signer.count({
+      where: { requestId: signer.requestId, status: { not: "SIGNED" } },
     });
+
+    if (remaining > 0) {
+      // Guarded so a stale submit can never stomp a terminal status.
+      await tx.signatureRequest.updateMany({
+        where: { id: signer.requestId, status: { in: ["SENT", "PARTIALLY_SIGNED"] } },
+        data: { status: "PARTIALLY_SIGNED" },
+      });
+      return "PARTIALLY_SIGNED" as const;
+    }
+
+    // Single-winner completion election: only the caller whose update matches proceeds to the
+    // (heavyweight) finalize + write-back outside the lock.
+    const won = await tx.signatureRequest.updateMany({
+      where: { id: signer.requestId, status: { in: ["SENT", "PARTIALLY_SIGNED"] } },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+    return won.count === 1 ? ("WON_COMPLETION" as const) : ("COMPLETED" as const);
+  });
+
+  if (transition === "PARTIALLY_SIGNED") {
     return { status: "SIGNED" as const, requestStatus: "PARTIALLY_SIGNED" as const };
   }
-
-  await completeRequest(signer.requestId, ctx);
+  if (transition === "WON_COMPLETION") {
+    await completeRequest(signer.requestId, ctx);
+  }
   return { status: "SIGNED" as const, requestStatus: "COMPLETED" as const };
 }
 
 /**
- * Flatten every signer's fields into the source PDF, hash the result, and mark COMPLETED.
- * (Certificate of Completion + Salesforce write-back are M3.)
+ * Completion pipeline, run only by the single submit that won the COMPLETED election:
+ * flatten + hash + persist the signed PDF (finalizeCompletion, idempotent), generate the
+ * Certificate of Completion, then attempt the Salesforce write-back. If the process dies
+ * anywhere in here, the write-back retry endpoint re-runs the same idempotent steps.
  */
 async function completeRequest(requestId: string, ctx: RequestContext) {
-  const request = await prisma.signatureRequest.findUniqueOrThrow({
-    where: { id: requestId },
-    include: { fields: true },
-  });
-  if (!request.originalPdf) throw new Error("Source document missing; cannot complete");
-
-  const placements: FieldPlacement[] = request.fields
-    .filter((f) => f.value != null && f.value !== "")
-    .map((f) => ({
-      type: f.type as FieldPlacement["type"],
-      pageIndex: f.pageIndex,
-      x: f.x,
-      y: f.y,
-      width: f.width,
-      height: f.height,
-      value: f.value as string,
-    }));
-
-  const signedPdf = await flattenFields(Buffer.from(request.originalPdf), placements);
-  const docHashFinal = sha256(signedPdf);
-
-  await prisma.$transaction(async (tx) => {
-    await tx.signatureRequest.update({
-      where: { id: requestId },
-      data: {
-        status: "COMPLETED",
-        completedAt: new Date(),
-        signedPdf: toPrismaBytes(signedPdf),
-        docHashFinal,
-      },
-    });
-    await recordAudit(tx, {
-      requestId,
-      eventType: "COMPLETED",
-      ipAddress: ctx.ip,
-      userAgent: ctx.userAgent,
-      metadata: { docHashFinal },
-    });
-  });
-
-  logger.info({ requestId, docHashFinal }, "Signature request completed");
-
-  // Produce the Certificate of Completion (pure, always) then attempt the Salesforce write-back.
-  // The write-back is best-effort here: a failure is recorded as WRITEBACK_FAILED and can be
-  // retried via POST /api/requests/:id/writeback — it must not break the signer's response.
+  await finalizeCompletion(requestId, ctx);
   await generateCertificate(requestId);
+
+  // Best-effort: a write-back failure is recorded as WRITEBACK_FAILED and is retryable via
+  // POST /api/requests/:id/writeback — it must not break the signer's response.
   try {
     await attemptWriteback(requestId, ctx);
   } catch (err) {
@@ -775,19 +825,39 @@ async function completeRequest(requestId: string, ctx: RequestContext) {
   }
 }
 
-/** A signer declines. Declining voids the whole request for v1 (single-document semantics). */
+/**
+ * A signer declines. Declining voids the whole request for v1 (single-document semantics) —
+ * but only while the request is still in flight. A COMPLETED request is an executed document
+ * and can never be flipped to DECLINED by a late/replayed link; that would make the status
+ * contradict the immutable audit trail.
+ */
 export async function declineSignature(
   token: string,
   reason: string | undefined,
   ctx: RequestContext,
 ) {
   const signer = await resolveSigner(token);
+  if (signer.status === "DECLINED") {
+    return { status: "DECLINED" as const }; // idempotent re-click
+  }
+
   await prisma.$transaction(async (tx) => {
-    await tx.signer.update({ where: { id: signer.id }, data: { status: "DECLINED" } });
-    await tx.signatureRequest.update({
-      where: { id: signer.requestId },
+    // Same lock as submit so a decline racing the final signature serializes cleanly.
+    await tx.$queryRaw`SELECT id FROM signature_requests WHERE id = ${signer.requestId}::uuid FOR UPDATE`;
+
+    const voided = await tx.signatureRequest.updateMany({
+      where: { id: signer.requestId, status: { in: ["SENT", "PARTIALLY_SIGNED"] } },
       data: { status: "DECLINED" },
     });
+    if (voided.count === 0) {
+      const fresh = await tx.signatureRequest.findUniqueOrThrow({
+        where: { id: signer.requestId },
+        select: { status: true },
+      });
+      throw httpError(409, `This document can no longer be declined (request is ${fresh.status.toLowerCase()}).`);
+    }
+
+    await tx.signer.update({ where: { id: signer.id }, data: { status: "DECLINED" } });
     await recordAudit(tx, {
       requestId: signer.requestId,
       signerId: signer.id,

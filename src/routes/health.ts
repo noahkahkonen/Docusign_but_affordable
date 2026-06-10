@@ -15,7 +15,9 @@ export async function healthRoutes(app: FastifyInstance): Promise<void> {
       await prisma.$queryRaw`SELECT 1`;
       checks.database = { ok: true };
     } catch (err) {
-      checks.database = { ok: false, detail: (err as Error).message };
+      // Boolean only — DB driver error strings can disclose host/schema details, and this
+      // endpoint is unauthenticated. The full error is in the server logs.
+      checks.database = { ok: false };
     }
 
     checks.salesforceConfigured = { ok: hasSalesforceCredentials() };

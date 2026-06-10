@@ -28,9 +28,14 @@ function getTransport(): Transporter | null {
   return transporter;
 }
 
-/** The branded From header, e.g. `InkPath Signatures <no-reply@inkpath.app>`. */
-function fromAddress(): string {
-  return `${env.BRAND_SENDER_NAME} <${env.BRAND_SENDER_EMAIL}>`;
+/**
+ * Structured From address. Passing { name, address } objects (never a concatenated string) makes
+ * nodemailer treat the display name as opaque text it must encode — a string like
+ * `${name} <${addr}>` gets RE-PARSED by nodemailer's addressparser, letting a crafted display
+ * name override the actual recipient.
+ */
+function fromAddress(): { name: string; address: string } {
+  return { name: env.BRAND_SENDER_NAME, address: env.BRAND_SENDER_EMAIL };
 }
 
 export interface OutgoingEmail {
@@ -61,7 +66,10 @@ export async function sendMail(message: OutgoingEmail): Promise<SendResult> {
 
   const info = await transport.sendMail({
     from: fromAddress(),
-    to: message.toName ? `${message.toName} <${message.to}>` : message.to,
+    // Structured object, NOT `${name} <${email}>`: signer names are attacker-influenceable, and
+    // a name like "Foo <attacker@evil.com>" in a concatenated string would be re-parsed by
+    // nodemailer and redirect the signing link (a bearer credential) to the attacker.
+    to: message.toName ? { name: message.toName, address: message.to } : message.to,
     subject: message.subject,
     text: message.text,
     html: message.html,

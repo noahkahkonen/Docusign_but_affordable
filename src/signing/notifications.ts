@@ -57,6 +57,18 @@ export async function sendSigningInvitations(
       });
     } catch (err) {
       logger.error({ requestId, signerId: link.signerId, err }, "Failed to email signing link");
+      // The legal trail must record non-delivery: "was the signer ever notified?" is exactly
+      // what gets asked in a dispute. Never let this audit write mask the delivery error.
+      try {
+        await recordAudit(prisma, {
+          requestId,
+          signerId: link.signerId,
+          eventType: "EMAIL_FAILED",
+          metadata: { email: link.email, error: (err as Error).message },
+        });
+      } catch (auditErr) {
+        logger.error({ requestId, signerId: link.signerId, auditErr }, "Failed to record EMAIL_FAILED audit");
+      }
     }
   }
 

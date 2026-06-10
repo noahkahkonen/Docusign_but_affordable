@@ -89,15 +89,18 @@ describe.runIf(run)("email delivery (integration)", () => {
     // One email per signer.
     expect(mail.sendMail).toHaveBeenCalledTimes(2);
 
-    // Each email goes to the right signer and carries that signer's exact link.
+    // Each email goes to the right signer and carries that signer's exact link. The To header is
+    // a structured { name, address } object (never a concatenated string) so a hostile display
+    // name can't smuggle a different recipient past nodemailer's address parser.
     const byRecipient = new Map(
       mail.sendMail.mock.calls.map(([msg]) => {
-        const m = msg as { to: string; subject: string; html: string; text: string };
-        return [m.to, m];
+        const m = msg as { to: string | { name?: string; address: string }; subject: string; html: string; text: string };
+        const address = typeof m.to === "string" ? m.to : m.to.address;
+        return [address, m];
       }),
     );
     for (const link of links) {
-      const sent = [...byRecipient.values()].find((m) => m.to.includes(link.email));
+      const sent = byRecipient.get(link.email);
       expect(sent, `email to ${link.email}`).toBeTruthy();
       expect(sent!.subject).toContain("Lease Agreement.pdf");
       // The link lives in the button href; the raw URL is intentionally not shown as text.
