@@ -1,0 +1,105 @@
+<template>
+    <lightning-card title="Send for signature (InkPath)" icon-name="utility:signature">
+        <div class="slds-p-around_medium">
+
+            <template lwc:if={loadError}>
+                <div class="slds-text-color_error slds-p-bottom_small">{loadError}</div>
+            </template>
+
+            <template lwc:if={hasFiles}>
+                <lightning-combobox
+                    label="Document"
+                    value={selectedFileId}
+                    options={fileOptions}
+                    onchange={handleFileChange}
+                    placeholder="Choose an attached file"
+                    required>
+                </lightning-combobox>
+                <lightning-input
+                    type="text"
+                    label="Signer name"
+                    value={signerName}
+                    onchange={handleSignerNameChange}
+                    class="slds-m-top_small"
+                    required>
+                </lightning-input>
+                <lightning-input
+                    type="email"
+                    label="Signer email"
+                    value={signerEmail}
+                    onchange={handleSignerEmailChange}
+                    class="slds-m-top_small"
+                    required>
+                </lightning-input>
+                <div class="slds-m-top_medium slds-grid slds-grid_vertical-align-center">
+                    <lightning-button
+                        label="Send for signature"
+                        variant="brand"
+                        onclick={handleSend}
+                        disabled={sending}>
+                    </lightning-button>
+                    <template lwc:if={sending}>
+                        <div class="slds-m-left_small">
+                            <lightning-spinner alternative-text="Sending" size="small" variant="brand"></lightning-spinner>
+                        </div>
+                    </template>
+                </div>
+            </template>
+
+            <template lwc:else>
+                <p class="slds-text-color_weak">
+                    No PDF, PNG, or JPEG files are attached to this record. Generate or upload a document first.
+                </p>
+            </template>
+
+            <template lwc:if={lastSigningUrl}>
+                <div class="slds-m-top_medium slds-box slds-theme_success">
+                    <p class="slds-text-heading_small">Signing link created</p>
+                    <p class="signing-url slds-m-top_x-small">{lastSigningUrl}</p>
+                    <div class="slds-m-top_x-small">
+                        <lightning-button label="Copy link" onclick={handleCopy}></lightning-button>
+                        <lightning-button
+                            label="Open"
+                            class="slds-m-left_x-small"
+                            variant="neutral"
+                            onclick={handleOpen}>
+                        </lightning-button>
+                    </div>
+                </div>
+            </template>
+
+            <h3 class="slds-text-heading_small slds-m-top_large slds-m-bottom_small">Previous requests</h3>
+            <template lwc:if={hasRequests}>
+                <ul class="slds-has-dividers_around-space">
+                    <template for:each={requestList} for:item="r">
+                        <li key={r.Id} class="slds-item slds-p-around_small">
+                            <div class="slds-grid slds-grid_align-spread">
+                                <div>
+                                    <strong>{r.Document_Name__c}</strong>
+                                    <div class="slds-text-color_weak slds-text-body_small">
+                                        {r.Signer_Name__c} &lt;{r.Signer_Email__c}&gt;
+                                    </div>
+                                    <template lwc:if={r.Signed_At__c}>
+                                        <div class="slds-text-color_weak slds-text-body_small">
+                                            Signed {r.signedAtDisplay} from {r.Signed_IP__c} ({r.Signature_Type__c})
+                                        </div>
+                                    </template>
+                                </div>
+                                <div>
+                                    <lightning-badge label={r.Status__c} class={r.badgeClass}></lightning-badge>
+                                    <template lwc:if={r.Signing_URL__c}>
+                                        <a href={r.Signing_URL__c} target="_blank" rel="noopener" class="slds-m-left_x-small">Open</a>
+                                    </template>
+                                </div>
+                            </div>
+                        </li>
+                    </template>
+                </ul>
+            </template>
+            <template lwc:else>
+                <p class="slds-text-color_weak">No signature requests yet for this record.</p>
+            </template>
+
+        </div>
+    </lightning-card>
+</template>

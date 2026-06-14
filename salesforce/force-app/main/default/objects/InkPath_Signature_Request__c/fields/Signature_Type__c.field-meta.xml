@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Signature_Type__c</fullName>
+    <label>Signature Type</label>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+            <value><fullName>Drawn</fullName><default>false</default><label>Drawn</label></value>
+            <value><fullName>Typed</fullName><default>false</default><label>Typed</label></value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

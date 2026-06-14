@@ -4,9 +4,13 @@ const Database = require('better-sqlite3');
 const { nanoid } = require('nanoid');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const INKPATH_API_KEY = process.env.INKPATH_API_KEY || '';
+const INKPATH_WEBHOOK_SECRET = process.env.INKPATH_WEBHOOK_SECRET || '';
+const PUBLIC_BASE_URL = process.env.PUBLIC_BASE_URL || '';
 
 const DATA_DIR = path.join(__dirname, 'data');
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
@@ -46,6 +50,15 @@ db.exec(`
   );
 `);
 
+function ensureColumn(table, col, def) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.some(c => c.name === col)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`);
+  }
+}
+ensureColumn('signature_requests', 'external_ref', 'TEXT');
+ensureColumn('signature_requests', 'webhook_url', 'TEXT');
+
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, UPLOADS_DIR),
   filename: (req, file, cb) => {
@@ -62,7 +75,7 @@ const upload = multer({
   }
 });
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -75,9 +88,38 @@ function getClientIp(req) {
 }
 
 function buildSigningUrl(req, token) {
+  if (PUBLIC_BASE_URL) return `${PUBLIC_BASE_URL.replace(/\/$/, '')}/sign/${token}`;
   const proto = req.headers['x-forwarded-proto'] || req.protocol;
   const host = req.headers['x-forwarded-host'] || req.get('host');
   return `${proto}://${host}/sign/${token}`;
+}
+
+function requireApiKey(req, res, next) {
+  if (!INKPATH_API_KEY) return res.status(503).json({ error: 'INKPATH_API_KEY not configured on the server' });
+  const provided = req.headers.authorization || '';
+  const expected = `Bearer ${INKPATH_API_KEY}`;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  next();
+}
+
+async function fireWebhook(url, payload) {
+  if (!url) return;
+  const body = JSON.stringify(payload);
+  const headers = { 'Content-Type': 'application/json', 'User-Agent': 'InkPath-Webhook/1.0' };
+  if (INKPATH_WEBHOOK_SECRET) {
+    const sig = crypto.createHmac('sha256', INKPATH_WEBHOOK_SECRET).update(body).digest('hex');
+    headers['X-InkPath-Signature'] = `sha256=${sig}`;
+  }
+  try {
+    const res = await fetch(url, { method: 'POST', headers, body });
+    if (!res.ok) console.error(`Webhook to ${url} returned ${res.status}`);
+  } catch (err) {
+    console.error(`Webhook to ${url} failed: ${err.message}`);
+  }
 }
 
 app.post('/api/documents', upload.single('file'), (req, res) => {
@@ -104,6 +146,52 @@ app.post('/api/documents', upload.single('file'), (req, res) => {
     document_id: docId,
     token,
     signing_url: buildSigningUrl(req, token)
+  });
+});
+
+app.post('/api/v1/documents', requireApiKey, (req, res) => {
+  const {
+    title, filename, mime_type, content_base64,
+    signer_name, signer_email, sender_name, sender_email,
+    external_ref, webhook_url
+  } = req.body || {};
+  if (!filename || !mime_type || !content_base64) {
+    return res.status(400).json({ error: 'filename, mime_type, content_base64 required' });
+  }
+  if (!['application/pdf', 'image/png', 'image/jpeg'].includes(mime_type)) {
+    return res.status(400).json({ error: 'mime_type must be application/pdf, image/png, or image/jpeg' });
+  }
+  if (!signer_name || !signer_email) {
+    return res.status(400).json({ error: 'signer_name and signer_email required' });
+  }
+  const buf = Buffer.from(content_base64, 'base64');
+  if (!buf.length) return res.status(400).json({ error: 'content_base64 is empty or invalid' });
+  if (buf.length > 25 * 1024 * 1024) return res.status(413).json({ error: 'file exceeds 25MB' });
+
+  const ext = mime_type === 'application/pdf' ? '.pdf' : mime_type === 'image/png' ? '.png' : '.jpg';
+  const storedName = `${nanoid()}${ext}`;
+  fs.writeFileSync(path.join(UPLOADS_DIR, storedName), buf);
+
+  const docId = nanoid();
+  const reqId = nanoid();
+  const token = nanoid(32);
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO documents (id, title, filename, original_name, mime_type, sender_name, sender_email, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(docId, title || filename, storedName, filename, mime_type, sender_name || null, sender_email || null, now);
+  db.prepare(`
+    INSERT INTO signature_requests
+      (id, document_id, signer_name, signer_email, token, status, external_ref, webhook_url, created_at)
+    VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+  `).run(reqId, docId, signer_name, signer_email, token, external_ref || null, webhook_url || null, now);
+
+  res.json({
+    request_id: reqId,
+    document_id: docId,
+    token,
+    signing_url: buildSigningUrl(req, token),
+    external_ref: external_ref || null
   });
 });
 
@@ -145,7 +233,7 @@ app.get('/api/requests/:token', (req, res) => {
   });
 });
 
-app.post('/api/requests/:token/sign', (req, res) => {
+app.post('/api/requests/:token/sign', async (req, res) => {
   const { signature_type, signature_data, typed_name } = req.body || {};
   if (!['drawn', 'typed'].includes(signature_type)) {
     return res.status(400).json({ error: 'signature_type must be "drawn" or "typed"' });
@@ -190,6 +278,26 @@ app.post('/api/requests/:token/sign', (req, res) => {
     signature_data: storedSignatureData,
     typed_name: typed_name || null
   });
+
+  if (row.webhook_url) {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers['x-forwarded-host'] || req.get('host');
+    fireWebhook(row.webhook_url, {
+      event: 'signature.signed',
+      request_id: row.id,
+      token: row.token,
+      external_ref: row.external_ref,
+      status: 'signed',
+      signed_at: signedAt,
+      signed_ip: ip,
+      signed_user_agent: ua,
+      signature_type,
+      typed_name: typed_name || null,
+      signature_url: storedSignatureData && storedSignatureData.startsWith('/signatures/')
+        ? `${PUBLIC_BASE_URL ? PUBLIC_BASE_URL.replace(/\/$/, '') : `${proto}://${host}`}${storedSignatureData}`
+        : null
+    });
+  }
 });
 
 app.get('/files/:filename', (req, res) => {

@@ -1,0 +1,9 @@
+.signing-url {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.8125rem;
+    word-break: break-all;
+    background: #ffffff;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #c9c9c9;
+    border-radius: 0.25rem;
+}
