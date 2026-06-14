@@ -5,6 +5,11 @@ export function sha256(buffer: Buffer): string {
   return createHash("sha256").update(buffer).digest("hex");
 }
 
+/** MD5 hex digest. Only used to round-trip-verify uploads against Google Drive's md5Checksum. */
+export function md5(buffer: Buffer): string {
+  return createHash("md5").update(buffer).digest("hex");
+}
+
 /**
  * Convert a Node Buffer to the `Uint8Array<ArrayBuffer>` shape Prisma's `Bytes` columns expect.
  * (Node's `Buffer` is a `Uint8Array<ArrayBufferLike>`, which the generated types reject.)

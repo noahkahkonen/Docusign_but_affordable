@@ -145,7 +145,7 @@ Salesforce Named Credential will present in M4):
 | `POST` | `/api/requests/:id/send` | mint per-signer access tokens, email each signer their link, return links |
 | `POST` | `/api/requests/:id/resend` | re-mint links for unsigned signers and re-email them (missed/expired) |
 | `GET` | `/api/requests/:id` | sender status view incl. the full audit trail |
-| `POST` | `/api/requests/:id/writeback` | retry the Salesforce write-back |
+| `POST` | `/api/requests/:id/writeback` | retry the Salesforce **and** Google Drive write-backs |
 | `GET` | `/api/requests/:id/signed` | download the flattened signed PDF |
 | `GET` | `/api/requests/:id/certificate` | download the Certificate of Completion |
 
@@ -193,13 +193,40 @@ On completion the engine:
 
 Write-back is **best-effort and idempotent**: if Salesforce isn't configured it's skipped; on
 failure a `WRITEBACK_FAILED` audit event is recorded and it can be retried via
-`POST /api/requests/:id/writeback` (the `Signature_Request__c` record upserts safely by external id;
-note the file uploads are **not yet idempotent** — a retry creates new Files, see Known limitations).
+`POST /api/requests/:id/writeback`. Each upload's `ContentDocumentId` is persisted the moment it
+succeeds, so a retry resumes (skipping what already landed) instead of creating duplicate Files, and
+the `Signature_Request__c` record upserts safely by external id.
 
 > **Before production:** deploy the `salesforce/` SFDX project so `Signature_Request__c` exists, and
 > validate the write-back in a **sandbox** first — the upload primitives are covered by mocked
 > integration tests here, not yet exercised against a live org (to avoid writing files into your
 > production org during development).
+
+## Google Drive write-back (optional)
+
+When the source record is a deal (`Source_Object_Type__c = TTL_Core__Deal__c`), completion **also**
+writes the signed PDF + certificate into the deal's Google Drive folder — **independently of, and
+after, the Salesforce write-back** (`src/signing/drive-writeback.ts`). A Drive failure is recorded
+as `DRIVE_WRITEBACK_FAILED`, never affects the Salesforce write-back or the signer response, and is
+retryable via the same `POST /api/requests/:id/writeback` endpoint.
+
+Flow:
+1. **Resolve the folder** — reuse the persisted `driveFolderId`, else parse the deal's
+   `Deal_Files_Drive__c` URL; if empty, **create** `"{Deal.Name} (Deal Files)"` (in the configured
+   Shared Drive) and write the folder URL back to `Deal_Files_Drive__c`.
+2. **Upload** the signed PDF as `"{Deal.Name} — {Document_Name__c} — SIGNED {date}.pdf"` and the
+   certificate suffixed `— Certificate`.
+3. **Integrity** — assert the signed bytes' SHA-256 equals `Final_Document_Hash__c` and that Drive's
+   returned `md5Checksum` round-trips; log a warning (not a failure) on mismatch.
+
+**Idempotent:** the folder id and each uploaded file id are persisted the moment they succeed, and a
+re-run skips them; as a second guard it looks up an existing file of the same name in the folder
+before uploading — so webhook re-fires and retries never create duplicates.
+
+**Auth** is a Google **service account** (`src/google/auth.ts`, hand-rolled JWT mirroring the
+Salesforce flow — no `googleapis` dependency). Set `GOOGLE_SERVICE_ACCOUNT_KEY` (the SA JSON, raw or
+base64) and, for folder *creation*, `GOOGLE_DRIVE_SHARED_DRIVE_ID`. Share the Shared Drive / target
+folders with the SA's `client_email`. Unset → Drive write-back is skipped cleanly. See `.env.example`.
 
 ## Deploying to Heroku
 

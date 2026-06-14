@@ -60,6 +60,21 @@ const schema = z.object({
   // warning is logged at boot.
   BACKEND_API_KEY: z.string().optional(),
 
+  // --- Google Drive write-back (optional) ---
+  // On completion, the signed PDF + certificate are also written into the matching deal's Google
+  // Drive folder. Authenticated by a Google service account. If GOOGLE_SERVICE_ACCOUNT_KEY is
+  // unset, Drive write-back is disabled and completion proceeds normally (Salesforce write-back is
+  // unaffected). The key is the service account's JSON, supplied either as raw JSON or base64
+  // (base64 is easier in a single-line Heroku config var). Never commit it.
+  GOOGLE_SERVICE_ACCOUNT_KEY: z.string().optional(),
+  // Optional Shared Drive used as the parent when CREATING a new deal folder (a service account
+  // has no personal My Drive storage quota, so new folders must live in a Shared Drive it can
+  // write to). Uploads INTO an existing deal folder don't require this.
+  GOOGLE_DRIVE_SHARED_DRIVE_ID: z.string().optional(),
+  // Optional Workspace user to impersonate via domain-wide delegation (when the deal folders live
+  // in a user's My Drive rather than a Shared Drive).
+  GOOGLE_DRIVE_SUBJECT: z.string().optional(),
+
   // Branding (light, simple, inviting — emerald). Overridable per-deployment.
   BRAND_NAME: z.string().default("InkPath"),
   BRAND_PRIMARY_COLOR: z.string().default("#10b981"), // emerald-500
@@ -127,4 +142,12 @@ export function hasSalesforceCredentials(): boolean {
  */
 export function hasEmailCredentials(): boolean {
   return Boolean(env.SMTP_HOST);
+}
+
+/**
+ * True only when a Google service account is configured. The Drive write-back checks this so
+ * completion still succeeds (and Salesforce write-back still runs) when Drive isn't wired up.
+ */
+export function hasGoogleDriveCredentials(): boolean {
+  return Boolean(env.GOOGLE_SERVICE_ACCOUNT_KEY);
 }

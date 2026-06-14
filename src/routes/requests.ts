@@ -12,6 +12,7 @@ import {
   getCertificatePdf,
 } from "../signing/requests.js";
 import { attemptWriteback } from "../signing/writeback.js";
+import { attemptDriveWriteback } from "../signing/drive-writeback.js";
 
 /**
  * Sender/admin API — used by the Salesforce LWC (via Named Credential) to create and send
@@ -115,10 +116,20 @@ export async function requestRoutes(app: FastifyInstance): Promise<void> {
     return status;
   });
 
-  // Retry the Salesforce write-back (e.g. after a transient failure or once SF is configured).
+  // Retry the write-backs (e.g. after a transient failure or once SF/Drive is configured). Runs
+  // Salesforce first, then Google Drive; each is best-effort and independently idempotent, so a
+  // failure of one is reported without blocking the other.
   app.post("/api/requests/:id/writeback", async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
-    return attemptWriteback(id, { ip: req.ip, userAgent: req.headers["user-agent"] });
+    const ctx = { ip: req.ip, userAgent: req.headers["user-agent"] };
+    const salesforce = await attemptWriteback(id, ctx);
+    let drive: Awaited<ReturnType<typeof attemptDriveWriteback>> | { ok: false; error: string };
+    try {
+      drive = await attemptDriveWriteback(id, ctx);
+    } catch (err) {
+      drive = { ok: false, error: (err as Error).message };
+    }
+    return { salesforce, drive };
   });
 
   // Download the flattened signed PDF.

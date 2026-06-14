@@ -35,6 +35,30 @@ interface DealRow {
   [rel: string]: unknown;
 }
 
+export interface DealDriveInfo {
+  name: string;
+  driveFolderUrl: string | null; // raw Deal_Files_Drive__c value, may be empty
+}
+
+/** Read a Deal's Name + its Google Drive folder link (Deal_Files_Drive__c). */
+export async function getDealDriveInfo(recordId: string): Promise<DealDriveInfo> {
+  if (!isSalesforceId(recordId)) throw new Error(`"${recordId}" is not a valid Salesforce record Id`);
+  const soql = `SELECT Name, Deal_Files_Drive__c FROM TTL_Core__Deal__c WHERE Id = '${recordId}'`;
+  const rows = await salesforce.query<{ Name?: string | null; Deal_Files_Drive__c?: string | null }>(soql);
+  if (rows.length === 0) throw new Error(`Deal ${recordId} not found`);
+  return { name: rows[0].Name ?? "Deal", driveFolderUrl: rows[0].Deal_Files_Drive__c ?? null };
+}
+
+/** Write a newly-created Drive folder URL back onto the Deal's Deal_Files_Drive__c field. */
+export async function setDealDriveFolder(recordId: string, folderUrl: string): Promise<void> {
+  if (!isSalesforceId(recordId)) throw new Error(`"${recordId}" is not a valid Salesforce record Id`);
+  const conn = await salesforce.connection();
+  const res = await conn.sobject("TTL_Core__Deal__c").update({ Id: recordId, Deal_Files_Drive__c: folderUrl });
+  if (!res.success) {
+    throw new Error(`Failed to set Deal_Files_Drive__c on ${recordId}: ${JSON.stringify(res.errors)}`);
+  }
+}
+
 export async function getDealParties(recordId: string): Promise<DealParties> {
   if (!isSalesforceId(recordId)) throw new Error(`"${recordId}" is not a valid Salesforce record Id`);
 

@@ -13,3 +13,8 @@ salesforce/.sfdx/
 salesforce/.sf/
 *.key
 *.pem
+
+# Google service-account keys (the SA JSON belongs in GOOGLE_SERVICE_ACCOUNT_KEY, never a file)
+*service-account*.json
+*service_account*.json
+gcp-*.json

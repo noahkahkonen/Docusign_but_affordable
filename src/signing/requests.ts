@@ -10,6 +10,7 @@ import { consentDisclosure } from "./consent.js";
 import { getPageLayouts } from "./pdf.js";
 import { autoPlaceFields, type AutoFieldRequest } from "./layout.js";
 import { generateCertificate, attemptWriteback, finalizeCompletion } from "./writeback.js";
+import { attemptDriveWriteback } from "./drive-writeback.js";
 import { sendSigningInvitations } from "./notifications.js";
 import { getDealParties } from "../salesforce/deal.js";
 import { computeRouting } from "./routing.js";
@@ -822,6 +823,14 @@ async function completeRequest(requestId: string, ctx: RequestContext) {
     await attemptWriteback(requestId, ctx);
   } catch (err) {
     logger.error({ requestId, err }, "Deferred write-back; will need retry");
+  }
+
+  // Google Drive write-back runs separately AFTER Salesforce so a Drive failure can't affect the
+  // Salesforce write-back. Independently retryable via the same /writeback endpoint.
+  try {
+    await attemptDriveWriteback(requestId, ctx);
+  } catch (err) {
+    logger.error({ requestId, err }, "Deferred Drive write-back; will need retry");
   }
 }
 
