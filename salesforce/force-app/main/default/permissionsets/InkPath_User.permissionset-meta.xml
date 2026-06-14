@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PermissionSet xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>InkPath User</label>
+    <description>Send documents for InkPath e-signature and view signature requests.</description>
+    <hasActivationRequired>false</hasActivationRequired>
+
+    <classAccesses>
+        <apexClass>InkPathService</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+    <classAccesses>
+        <apexClass>InkPathWebhook</apexClass>
+        <enabled>true</enabled>
+    </classAccesses>
+
+    <objectPermissions>
+        <object>InkPath_Signature_Request__c</object>
+        <allowCreate>true</allowCreate>
+        <allowDelete>true</allowDelete>
+        <allowEdit>true</allowEdit>
+        <allowRead>true</allowRead>
+        <viewAllRecords>false</viewAllRecords>
+        <modifyAllRecords>false</modifyAllRecords>
+    </objectPermissions>
+
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.Status__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.Signing_URL__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.Signer_Name__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.Signer_Email__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.Document_Name__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.Request_Token__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.External_Request_Id__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.Related_Record_Id__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.Signed_At__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.Signed_IP__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+    <fieldPermissions>
+        <field>InkPath_Signature_Request__c.Signature_Type__c</field>
+        <readable>true</readable><editable>true</editable>
+    </fieldPermissions>
+</PermissionSet>
