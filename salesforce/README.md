@@ -64,6 +64,12 @@ needs a **Connected App** with a certificate and the integration user pre-author
 of the Named Credential above, which is only for the Salesforce → backend direction. See the root
 `README.md`.
 
+For the optional **Google Drive write-back**, the JWT integration user must also have **read on
+`TTL_Core__Deal__c.Name` and read/edit on `Deal_Files_Drive__c`** (the backend reads the deal's
+Drive folder link and writes the URL back when it creates a new folder). No SFDX metadata is added
+for this feature — it's backend-only and uses the existing fields. See the root README's "Google
+Drive write-back" section for the service-account setup.
+
 ## How it flows
 
 1. User opens a record, clicks **Send for Signature**.

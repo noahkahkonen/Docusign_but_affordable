@@ -73,6 +73,8 @@ enum AuditEventType {
   COMPLETED
   WRITEBACK_SUCCEEDED
   WRITEBACK_FAILED
+  DRIVE_WRITEBACK_SUCCEEDED
+  DRIVE_WRITEBACK_FAILED
   VOIDED
 }
 
@@ -106,6 +108,12 @@ model SignatureRequest {
   // duplicate Files on the Salesforce record.
   signedContentDocumentId      String? @map("signed_content_document_id")
   certificateContentDocumentId String? @map("certificate_content_document_id")
+
+  // Google Drive write-back idempotency: the deal's folder and the uploaded file ids, persisted
+  // immediately after each step so a retry/webhook re-fire skips what already landed.
+  driveFolderId          String? @map("drive_folder_id")
+  driveSignedFileId      String? @map("drive_signed_file_id")
+  driveCertificateFileId String? @map("drive_certificate_file_id")
 
   // Encrypted PDF storage lives out-of-band; for v1 we keep bytes in Postgres (swappable to S3).
   originalPdf Bytes?  @map("original_pdf")
